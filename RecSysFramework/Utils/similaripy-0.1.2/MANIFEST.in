@@ -1,0 +1,4 @@
+include README.md
+include LICENSE
+recursive-include similaripy *.py
+recursive-include similaripy/cython_code *.h *.pyx *.py *.cpp
