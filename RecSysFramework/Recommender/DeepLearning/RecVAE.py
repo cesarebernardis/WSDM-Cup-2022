@@ -3,9 +3,6 @@
 """
 Created on 07/10/21
 @author: Cesare Bernardis
-
-Adapted implementation from https://github.com/ilya-shenbin/RecVAE
-
 """
 
 import numpy as np
@@ -146,10 +143,10 @@ class Encoder(nn.Module):
         self.ln2 = nn.LayerNorm(hidden_dim, eps=eps)
         self.fc3 = nn.Linear(hidden_dim, hidden_dim)
         self.ln3 = nn.LayerNorm(hidden_dim, eps=eps)
-        self.fc4 = nn.Linear(hidden_dim, hidden_dim)
-        self.ln4 = nn.LayerNorm(hidden_dim, eps=eps)
-        self.fc5 = nn.Linear(hidden_dim, hidden_dim)
-        self.ln5 = nn.LayerNorm(hidden_dim, eps=eps)
+        #self.fc4 = nn.Linear(hidden_dim, hidden_dim)
+        #self.ln4 = nn.LayerNorm(hidden_dim, eps=eps)
+        #self.fc5 = nn.Linear(hidden_dim, hidden_dim)
+        #self.ln5 = nn.LayerNorm(hidden_dim, eps=eps)
         self.fc_mu = nn.Linear(hidden_dim, latent_dim)
         self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
 
@@ -161,9 +158,9 @@ class Encoder(nn.Module):
 
         h1 = self.ln1(swish(self.fc1(x)))
         h2 = self.ln2(swish(self.fc2(h1) + h1))
-        h3 = self.ln3(swish(self.fc3(h2) + h1 + h2))
-        h4 = self.ln4(swish(self.fc4(h3) + h1 + h2 + h3))
-        h5 = self.ln5(swish(self.fc5(h4) + h1 + h2 + h3 + h4))
+        h5 = self.ln3(swish(self.fc3(h2) + h1 + h2))
+        #h4 = self.ln4(swish(self.fc4(h3) + h1 + h2 + h3))
+        #h5 = self.ln5(swish(self.fc5(h4) + h1 + h2 + h3 + h4))
         return self.fc_mu(h5), self.fc_logvar(h5)
 
 
@@ -322,8 +319,6 @@ class RecVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
         self.optimizers = [torch.optim.Adam(encoder_params, lr=self.learning_rate),
                            torch.optim.Adam(decoder_params, lr=self.learning_rate)]
 
-        self._update_best_model()
-
         self._train_with_early_stopping(epochs,
                                         algorithm_name=self.RECOMMENDER_NAME,
                                         **earlystopping_kwargs)
@@ -397,5 +392,5 @@ class RecVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
 
     def load_model(self, folder_path, file_name=None):
         super(RecVAE, self).load_model(folder_path, file_name=file_name)
-        self.model = torch.load(folder_path + file_name + "_model.pt")
+        self.model.load_state_dict(torch.load(self.best_model_file))
 
