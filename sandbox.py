@@ -16,6 +16,24 @@ if __name__ == "__main__":
 
     max_cutoff = max(EXPERIMENTAL_CONFIG['cutoffs'])
 
+    for exam_folder in EXPERIMENTAL_CONFIG['test-datasets']:
+
+        exam_train, exam_valid, urm_exam_valid_neg, urm_exam_test_neg = create_dataset_from_folder(exam_folder)
+        exam_user_mapper, exam_item_mapper = exam_train.get_URM_mapper()
+        exam_profile_lengths = np.ediff1d(exam_train.get_URM().indptr)
+        vals, counts = np.unique(exam_profile_lengths, return_counts=True)
+        print(vals)
+        print(counts)
+        print()
+
+        exam_profile_lengths = np.ediff1d((exam_train.get_URM() + exam_valid.get_URM()).indptr)
+        vals, counts = np.unique(exam_profile_lengths, return_counts=True)
+        print(vals)
+        print(counts)
+        print()
+    exit()
+
+
     for folder in EXPERIMENTAL_CONFIG['datasets']:
 
         train, valid, urm_valid_neg, urm_test_neg = create_dataset_from_folder(folder)

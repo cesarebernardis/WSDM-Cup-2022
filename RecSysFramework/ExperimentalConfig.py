@@ -14,9 +14,12 @@ EXPERIMENTAL_CONFIG = {
     'n_folds': 5,
     'splitter': LeaveKOut(k_value=1, with_validation=False, test_rating_threshold=3., allow_cold_users=True),
     'dataset_folder': "datasets" + os.sep,
-    'datasets': ['t1', 't2', 't1-t2', 's2-t1', 's2-t2', 's1-t1', 's1-t2'],
+    'datasets': ['t1', 't2', 't1-t2', 's2-t1', 's2-t2', 's3-t1', 's3-t2', 's1-t1', 's1-t2'],
     'test-datasets': ['t1', 't2'],
     'baselines': [TopPop, ItemKNNCF, UserKNNCF, P3alpha, RP3beta, PureSVD, IALS, WARPMF, SLIM, EASE_R, HOEASE_R, MultVAE, RecVAE][:-2],
     'recap_metrics': ["HR", "NDCG"],
     'cutoffs': [5, 10, 25],
+    'cold_user_threshold': 5,
+    'quite_cold_user_threshold': 8,
+    'quite_warm_user_threshold': 12,
 }

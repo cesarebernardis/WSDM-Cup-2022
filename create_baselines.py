@@ -1,4 +1,5 @@
 import os
+import gzip
 
 import numpy as np
 import scipy.sparse as sps
@@ -14,8 +15,8 @@ from RecSysFramework.Utils import load_compressed_csr_matrix, save_compressed_cs
 from utils import create_dataset_from_folder, stretch_urm
 
 
-def compute_scores(folder, algorithm, urm, urm_neg, user_mapper, item_mapper,
-                   user_prefix="", item_prefix="", is_test=False, save=True, exam_folder=None):
+def compute_scores(folder, algorithm, urm, urm_neg, user_mapper, item_mapper, user_prefix="", item_prefix="",
+                   is_test=False, save=True, exam_folder=None, compress=True):
 
     n_users, n_items = urm.shape
     inv_user_mapper = {v: k for k, v in user_mapper.items()}
@@ -39,9 +40,15 @@ def compute_scores(folder, algorithm, urm, urm_neg, user_mapper, item_mapper,
     else:
         recfile += exam_folder + "_valid_scores.tsv"
 
+    if compress:
+        if not recfile.endswith(".gz"):
+            recfile += ".gz"
+        file = gzip.open(recfile, "wt")
+    else:
+        file = open(recfile, "w")
+
     if save:
-        with open(recfile, "w") as file:
-            print("userId\titemId\tscore", file=file)
+        print("userId\titemId\tscore", file=file)
 
     batchsize = 400
 
@@ -61,20 +68,21 @@ def compute_scores(folder, algorithm, urm, urm_neg, user_mapper, item_mapper,
         )
 
         if save:
-            with open(recfile, "a") as file:
-                for u_idx, u in enumerate(users_to_recommend[start:end]):
-                    sc = scores[u_idx, :][items_to_compute[u_idx]]
-                    minimum = min(sc)
-                    maximum = max(sc)
-                    if minimum != maximum:
-                        minimum = min(sc[sc != -np.inf]) - 0.1
-                    else:
-                        minimum = 0.
-                    for i_idx, i in enumerate(items_to_compute[u_idx].tolist()):
-                        s = max(sc[i_idx], minimum)
-                        print("{}\t{}\t{}".format(user_prefix + inv_user_mapper[u].strip(),
-                                                  item_prefix + inv_item_mapper[i].strip(),
-                                                  s), file=file)
+            for u_idx, u in enumerate(users_to_recommend[start:end]):
+                sc = scores[u_idx, :][items_to_compute[u_idx]]
+                minimum = min(sc)
+                maximum = max(sc)
+                if minimum != maximum:
+                    minimum = min(sc[sc != -np.inf]) - 0.1
+                else:
+                    minimum = 1e-8
+                for i_idx, i in enumerate(items_to_compute[u_idx].tolist()):
+                    s = max(sc[i_idx], minimum)
+                    print("{}\t{}\t{}".format(user_prefix + inv_user_mapper[u].strip(),
+                                              item_prefix + inv_item_mapper[i].strip(),
+                                              s), file=file)
+
+    file.close()
 
 
 
@@ -99,7 +107,7 @@ if __name__ == "__main__":
                 n_cases=50, n_random_starts=35, save_model="no", URM_validation_negatives=urm_valid_neg
             )
 
-            recfile = output_folder_path + os.sep + folder + "_valid_scores.tsv"
+            recfile = output_folder_path + os.sep + folder + "_valid_scores.tsv.gz"
             if not os.path.isfile(recfile):
                 compute_scores(folder, algorithm, train.get_URM(), urm_valid_neg,
                         user_mapper=user_mapper, item_mapper=item_mapper, user_prefix=folder, is_test=False)
@@ -110,14 +118,14 @@ if __name__ == "__main__":
 
                     for fold in range(EXPERIMENTAL_CONFIG['n_folds']):
                         validation_folder = exam_folder + "-" + str(fold)
-                        matrices_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + validation_folder + os.sep
-                        with open("{}URM_all_train_mapper".format(matrices_folder), "rb") as file:
-                            exam_user_mapper, exam_item_mapper = pkl.load(file)
-                        exam_urm_valid_neg = load_compressed_csr_matrix(matrices_folder + "urm_neg.npz")
-                        exam_urm_valid_neg = stretch_urm(exam_urm_valid_neg, exam_user_mapper, exam_item_mapper, user_mapper, item_mapper)
-                        recfile = output_folder_path + os.sep + validation_folder + "_valid_scores.tsv"
+                        recfile = output_folder_path + os.sep + validation_folder + "_valid_scores.tsv.gz"
                         if not os.path.isfile(recfile):
-                            urm = train.get_URM() - 100 * exam_urm_valid_neg
+                            matrices_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + validation_folder + os.sep
+                            with open("{}URM_all_train_mapper".format(matrices_folder), "rb") as file:
+                                exam_user_mapper, exam_item_mapper = pkl.load(file)
+                            exam_urm_valid_neg = load_compressed_csr_matrix(matrices_folder + "urm_neg.npz")
+                            exam_urm_valid_neg = stretch_urm(exam_urm_valid_neg, exam_user_mapper, exam_item_mapper, user_mapper, item_mapper)
+                            urm = train.get_URM() - 100 * exam_urm_valid_neg.astype(np.float32)
                             urm.data[urm.data < 0.] = 0.
                             urm.eliminate_zeros()
                             compute_scores(folder, algorithm, urm, exam_urm_valid_neg,
@@ -133,14 +141,14 @@ if __name__ == "__main__":
                         exam_urm_valid_neg = stretch_urm(exam_urm_valid_neg, exam_user_mapper, exam_item_mapper, user_mapper, item_mapper)
                         exam_urm_test_neg = stretch_urm(exam_urm_test_neg, exam_user_mapper, exam_item_mapper, user_mapper, item_mapper)
 
-                    recfile = output_folder_path + os.sep + exam_folder + "_valid_scores.tsv"
+                    recfile = output_folder_path + os.sep + exam_folder + "_valid_scores.tsv.gz"
                     if not os.path.isfile(recfile):
                         compute_scores(folder, algorithm, train.get_URM(), exam_urm_valid_neg,
                                        user_mapper=user_mapper, item_mapper=item_mapper,
                                        user_prefix=exam_folder, is_test=False, exam_folder=exam_folder)
 
                     if exam_urm_test_neg is not None:
-                        recfile = output_folder_path + os.sep + exam_folder + "_test_scores.tsv"
+                        recfile = output_folder_path + os.sep + exam_folder + "_test_scores.tsv.gz"
                         if not os.path.isfile(recfile):
                             urm = train.get_URM() + valid.get_URM()
                             if exam_folder != folder:

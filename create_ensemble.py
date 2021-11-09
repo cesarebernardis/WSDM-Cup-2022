@@ -9,7 +9,7 @@ from RecSysFramework.Recommender.DataIO import DataIO
 from RecSysFramework.Evaluation.Metrics import ndcg
 from RecSysFramework.ExperimentalConfig import EXPERIMENTAL_CONFIG
 
-from utils import create_dataset_from_folder, compress_urm, read_ratings, output_scores, row_minmax_scaling, evaluate
+from utils import create_dataset_from_folder, compress_urm, read_ratings, output_scores, row_minmax_scaling, evaluate, make_submission
 
 
 
@@ -120,4 +120,6 @@ if __name__ == "__main__":
         output_scores(basepath + "test_scores.tsv", urm_exam_test_total, exam_user_mapper, exam_item_mapper, user_prefix=exam_folder)
 
         print("----------------------------------")
+
+    make_submission()
 
