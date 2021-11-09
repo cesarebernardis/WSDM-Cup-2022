@@ -49,7 +49,7 @@ class BaseTempFolder(object):
     def __init__(self):
         super(BaseTempFolder, self).__init__()
 
-        self.DEFAULT_TEMP_FILE_FOLDER = './result_experiments/__Temp_{}/'.format(self.RECOMMENDER_NAME)
+        self.DEFAULT_TEMP_FILE_FOLDER = './experiments_data/__Temp_{}/'.format(self.RECOMMENDER_NAME)
 
 
     def _get_unique_temp_folder(self, input_temp_file_folder=None):
@@ -359,6 +359,15 @@ class MultVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
         else:
             self.p_dims = p_dims
 
+        if not isinstance(self.p_dims, list):
+            cs_op = getattr(self.p_dims, "tolist", None)
+            if cs_op is not None and callable(cs_op):
+                self.p_dims = self.p_dims.tolist()
+            elif isinstance(self.p_dims, dict):
+                self.p_dims = [int(v) for k, v in sorted(self.p_dims.items())]
+            else:
+                self.p_dims = list(self.p_dims)
+
         if self.p_dims[-1] != self.n_items:
             self.p_dims.append(self.n_items)
 
@@ -424,7 +433,8 @@ class MultVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
 
     def _run_epoch(self, num_epoch):
 
-        user_index_list_train = list(range(self.n_users))
+        pl = np.ediff1d(self.URM_train.indptr) > 0
+        user_index_list_train = np.arange(len(pl), dtype=np.int32)[pl] 
 
         np.random.shuffle(user_index_list_train)
 

@@ -251,21 +251,23 @@ class RecVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
     def _compute_item_score(self, user_id_array, items_to_compute=None):
 
         self.model.eval()
-        URM_train_user_slice = self.URM_train[user_id_array]
-        URM_train_user_slice = URM_train_user_slice.astype('float32')
-        item_scores_to_compute = np.empty((len(user_id_array), self.n_items), dtype=np.float32)
+        URM_train_user_slice = self.URM_train[user_id_array].astype('float32')
+        mask = np.ediff1d(URM_train_user_slice.indptr) > 0
+        item_scores = -np.ones((len(user_id_array), self.n_items), dtype=np.float32) * np.inf
+        item_scores_to_compute = np.empty((sum(mask), self.n_items), dtype=np.float32)
 
-        for batch in generate(batch_size=64, device=self.device, data_in=URM_train_user_slice):
+        for batch in generate(batch_size=64, device=self.device, data_in=URM_train_user_slice[mask, :]):
             ratings_dev = batch.get_ratings_to_dev()
             ratings_pred = self.model(ratings_dev, calculate_loss=False).cpu().detach().numpy()
             item_scores_to_compute[batch.get_idx(), :] = ratings_pred
             del ratings_dev
 
         if items_to_compute is not None:
-            item_scores = - np.ones((len(user_id_array), self.n_items)) * np.inf
-            item_scores[:, items_to_compute] = item_scores_to_compute[:, items_to_compute]
+            item_scores_to_compute_backup = - np.ones((sum(mask), self.n_items)) * np.inf
+            item_scores_to_compute_backup[:, items_to_compute] = item_scores_to_compute[:, items_to_compute]
+            item_scores[mask, :] = item_scores_to_compute_backup
         else:
-            item_scores = item_scores_to_compute
+            item_scores[mask, :] = item_scores_to_compute
 
         return item_scores
 
@@ -286,6 +288,7 @@ class RecVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
         self.temp_file_folder = self._get_unique_temp_folder(input_temp_file_folder=temp_file_folder)
 
         self.URM_train = sps.csr_matrix(self.URM_train, dtype=np.float32)
+        self.URM_input = self.URM_train[np.ediff1d(self.URM_train.indptr) > 0, :]
 
         self.batch_size = batch_size
         self.dropout = dropout
@@ -343,7 +346,7 @@ class RecVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
         def run(dropout, epochs=1):
             for e in range(epochs):
                 for batch in generate(batch_size=self.batch_size, device=self.device,
-                                      data_in=self.URM_train, shuffle=True):
+                                      data_in=self.URM_input, shuffle=True):
                     ratings = batch.get_ratings_to_dev()
 
                     for optimizer in self.optimizers:
