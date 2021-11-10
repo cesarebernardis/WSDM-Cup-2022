@@ -100,6 +100,21 @@ if __name__ == "__main__":
         for algorithm in EXPERIMENTAL_CONFIG['baselines']:
 
             output_folder_path = train.get_complete_folder() + os.sep + algorithm.RECOMMENDER_NAME + os.sep
+            to_recompute = False
+
+            try:
+                filename = algorithm.RECOMMENDER_NAME + "_metadata"
+                dataio = DataIO(output_folder_path)
+                hpo = dataio.load_data(file_name=filename)
+
+                for i, r in enumerate(hpo['result_on_validation_list']):
+                    if r is None:
+                        hpo['hyperparameters_list'][i] = None
+                        to_recompute = True
+
+                dataio.save_data(data_dict_to_save=hpo, file_name=filename)
+            except FileNotFoundError:
+                pass
 
             run_parameter_search(
                 algorithm, "leave_one_out", train, valid, output_folder_path=output_folder_path,
@@ -119,7 +134,7 @@ if __name__ == "__main__":
                     for fold in range(EXPERIMENTAL_CONFIG['n_folds']):
                         validation_folder = exam_folder + "-" + str(fold)
                         recfile = output_folder_path + os.sep + validation_folder + "_valid_scores.tsv.gz"
-                        if not os.path.isfile(recfile):
+                        if not os.path.isfile(recfile) or to_recompute:
                             matrices_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + validation_folder + os.sep
                             with open("{}URM_all_train_mapper".format(matrices_folder), "rb") as file:
                                 exam_user_mapper, exam_item_mapper = pkl.load(file)
@@ -142,14 +157,14 @@ if __name__ == "__main__":
                         exam_urm_test_neg = stretch_urm(exam_urm_test_neg, exam_user_mapper, exam_item_mapper, user_mapper, item_mapper)
 
                     recfile = output_folder_path + os.sep + exam_folder + "_valid_scores.tsv.gz"
-                    if not os.path.isfile(recfile):
+                    if not os.path.isfile(recfile) or to_recompute:
                         compute_scores(folder, algorithm, train.get_URM(), exam_urm_valid_neg,
                                        user_mapper=user_mapper, item_mapper=item_mapper,
                                        user_prefix=exam_folder, is_test=False, exam_folder=exam_folder)
 
                     if exam_urm_test_neg is not None:
                         recfile = output_folder_path + os.sep + exam_folder + "_test_scores.tsv.gz"
-                        if not os.path.isfile(recfile):
+                        if not os.path.isfile(recfile) or to_recompute:
                             urm = train.get_URM() + valid.get_URM()
                             if exam_folder != folder:
                                 urm += exam_valid_urm

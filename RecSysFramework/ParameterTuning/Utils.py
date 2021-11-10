@@ -254,7 +254,7 @@ def run_parameter_search(recommender_class, split_name, dataset_train, dataset_v
 
         output_file_name_root = recommender_class.RECOMMENDER_NAME
 
-        if recommender_class in [TopPop, GlobalEffects, Random]:
+        if recommender_class in [TopPop, Random]:
             """
             TopPop, GlobalEffects and Random have no parameters therefore only one evaluation is needed
             """
@@ -320,6 +320,21 @@ def run_parameter_search(recommender_class, split_name, dataset_train, dataset_v
                 CONSTRUCTOR_KEYWORD_ARGS={},
                 FIT_POSITIONAL_ARGS=fixed_positional_args,
                 FIT_KEYWORD_ARGS=fixed_keyword_args,
+            )
+
+        ##########################################################################################################
+
+        if recommender_class is GlobalEffects:
+            hyperparameters_range_dictionary = {
+                "lambda_item": Real(low=0.1, high=1000, prior='log-uniform'),
+                "lambda_user": Real(low=0.1, high=1000, prior='log-uniform'),
+            }
+
+            recommender_input_args = SearchInputRecommenderArgs(
+                CONSTRUCTOR_POSITIONAL_ARGS=constructor_positional_args,
+                CONSTRUCTOR_KEYWORD_ARGS={},
+                FIT_POSITIONAL_ARGS=fixed_positional_args,
+                FIT_KEYWORD_ARGS=fixed_keyword_args
             )
 
         ##########################################################################################################

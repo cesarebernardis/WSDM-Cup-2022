@@ -113,6 +113,7 @@ if __name__ == "__main__":
 
         ensemble_ratings = {}
         profile_lengths_diff = [{} for _ in range(-1, EXPERIMENTAL_CONFIG['n_folds'])]
+        run_last_level_opt = False
 
         for folder in EXPERIMENTAL_CONFIG['datasets']:
 
@@ -157,75 +158,104 @@ if __name__ == "__main__":
                         for fold in range(EXPERIMENTAL_CONFIG['n_folds'] + 1):
                             del ratings[fold][recname]
 
-                result_dict = {}
-                print("Starting cold optimization")
-                study_name = "base-ensemble-cold-{}-{}".format(folder, exam_folder)
-                _objective = lambda x: objective(x, ratings, user_masks['cold'])
-                study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True,
-                        storage="sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "optuna.db")
-                study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-                result_dict["cold"] = study.best_params
+                run_opt = False
+                weights_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "best-ensemble-weights.pkl"
+                if os.path.isfile(weights_filename):
+                    with open(weights_filename, "rb") as file:
+                        result_dict = pkl.load(file)
+                    for k in result_dict['cold'].keys():
+                        if k not in ratings[-1].keys():
+                            run_opt = True
+                else:
+                    run_opt = True
 
-                print("Starting quite-cold optimization")
-                study_name = "base-ensemble-quitecold-{}-{}".format(folder, exam_folder)
-                _objective = lambda x: objective(x, ratings, user_masks['quite-cold'])
-                study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True,
-                        storage="sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "optuna.db")
-                study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-                result_dict["quite-cold"] = study.best_params
+                if run_opt:
+                    run_last_level_opt = True
+                    result_dict = {}
+                    print("Starting cold optimization")
+                    storage = "sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "optuna.db"
+                    study_name = "base-ensemble-cold-{}-{}".format(folder, exam_folder)
+                    optuna.study.delete_study(study_name, storage)
+                    _objective = lambda x: objective(x, ratings, user_masks['cold'])
+                    study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
+                    study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
+                    result_dict["cold"] = study.best_params
 
-                print("Starting quite-warm optimization")
-                study_name = "base-ensemble-quitewarm-{}-{}".format(folder, exam_folder)
-                _objective = lambda x: objective(x, ratings, user_masks['quite-warm'])
-                study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True,
-                        storage="sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "optuna.db")
-                study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-                result_dict["quite-warm"] = study.best_params
+                    print("Starting quite-cold optimization")
+                    study_name = "base-ensemble-quitecold-{}-{}".format(folder, exam_folder)
+                    optuna.study.delete_study(study_name, storage)
+                    _objective = lambda x: objective(x, ratings, user_masks['quite-cold'])
+                    study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
+                    study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
+                    result_dict["quite-cold"] = study.best_params
 
-                print("Starting warm optimization")
-                study_name = "base-ensemble-warm-{}-{}".format(folder, exam_folder)
-                _objective = lambda x: objective(x, ratings, user_masks['warm'])
-                study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True,
-                        storage="sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "optuna.db")
-                study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-                result_dict["warm"] = study.best_params
+                    print("Starting quite-warm optimization")
+                    study_name = "base-ensemble-quitewarm-{}-{}".format(folder, exam_folder)
+                    optuna.study.delete_study(study_name, storage)
+                    _objective = lambda x: objective(x, ratings, user_masks['quite-warm'])
+                    study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
+                    study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
+                    result_dict["quite-warm"] = study.best_params
 
-                with open(EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "best-ensemble-weights.pkl", "wb") as file:
-                    pkl.dump(result_dict, file)
+                    print("Starting warm optimization")
+                    study_name = "base-ensemble-warm-{}-{}".format(folder, exam_folder)
+                    optuna.study.delete_study(study_name, storage)
+                    _objective = lambda x: objective(x, ratings, user_masks['warm'])
+                    study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
+                    study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
+                    result_dict["warm"] = study.best_params
+
+                    with open(weights_filename, "wb") as file:
+                        pkl.dump(result_dict, file)
 
                 ensemble_ratings[folder], _ = first_level_ensemble(folder, exam_folder, exam_valid,
                                 exam_profile_lengths[-1], dict((k, user_masks[k][-1]) for k in user_masks.keys()))
 
-        result_dict = {}
-        print("Starting cold optimization")
-        study_name = "last-level-ensemble-cold-{}".format(exam_folder)
-        storage = "sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + "optuna.db"
-        #optuna.study.delete_study(study_name, storage)
-        _objective = lambda x: objective(x, [ensemble_ratings], user_masks['cold'], profile_lengths_diff)
-        study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-        study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-        result_dict["cold"] = study.best_params
+        weights_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + "best-last-level-ensemble-weights.pkl"
+        if os.path.isfile(weights_filename):
+            with open(weights_filename, "rb") as file:
+                result_dict = pkl.load(file)
+            for k in result_dict['cold'].keys():
+                if k not in ensemble_ratings.keys():
+                    run_last_level_opt = True
+        else:
+            run_last_level_opt = True
 
-        print("Starting quite-cold optimization")
-        study_name = "last-level-ensemble-quitecold-{}".format(exam_folder)
-        _objective = lambda x: objective(x, [ensemble_ratings], user_masks['quite-cold'], profile_lengths_diff)
-        study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-        study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-        result_dict["quite-cold"] = study.best_params
+        if run_last_level_opt:
 
-        print("Starting quite-warm optimization")
-        study_name = "last-level-ensemble-quitewarm-{}".format(exam_folder)
-        _objective = lambda x: objective(x, [ensemble_ratings], user_masks['quite-warm'], profile_lengths_diff)
-        study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-        study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-        result_dict["quite-warm"] = study.best_params
+            result_dict = {}
+            print("Starting cold optimization")
+            study_name = "last-level-ensemble-cold-{}".format(exam_folder)
+            storage = "sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + "optuna.db"
+            optuna.study.delete_study(study_name, storage)
+            _objective = lambda x: objective(x, [ensemble_ratings], user_masks['cold'], profile_lengths_diff)
+            study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
+            study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
+            result_dict["cold"] = study.best_params
 
-        print("Starting warm optimization")
-        study_name = "last-level-ensemble-warm-{}".format(exam_folder)
-        _objective = lambda x: objective(x, [ensemble_ratings], user_masks['warm'], profile_lengths_diff)
-        study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-        study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-        result_dict["warm"] = study.best_params
+            print("Starting quite-cold optimization")
+            study_name = "last-level-ensemble-quitecold-{}".format(exam_folder)
+            optuna.study.delete_study(study_name, storage)
+            _objective = lambda x: objective(x, [ensemble_ratings], user_masks['quite-cold'], profile_lengths_diff)
+            study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
+            study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
+            result_dict["quite-cold"] = study.best_params
 
-        with open(EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + "best-last-level-ensemble-weights.pkl", "wb") as file:
-            pkl.dump(result_dict, file)
+            print("Starting quite-warm optimization")
+            study_name = "last-level-ensemble-quitewarm-{}".format(exam_folder)
+            optuna.study.delete_study(study_name, storage)
+            _objective = lambda x: objective(x, [ensemble_ratings], user_masks['quite-warm'], profile_lengths_diff)
+            study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
+            study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
+            result_dict["quite-warm"] = study.best_params
+
+            print("Starting warm optimization")
+            study_name = "last-level-ensemble-warm-{}".format(exam_folder)
+            optuna.study.delete_study(study_name, storage)
+            _objective = lambda x: objective(x, [ensemble_ratings], user_masks['warm'], profile_lengths_diff)
+            study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
+            study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
+            result_dict["warm"] = study.best_params
+
+            with open(weights_filename, "wb") as file:
+                pkl.dump(result_dict, file)

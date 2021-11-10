@@ -82,21 +82,20 @@ class GlobalEffects(Recommender):
         self.URM_train = check_matrix(self.URM_train, 'csc', dtype=np.float32)
 
         # 1) global average
-        self.mu = self.URM_train.data.sum(dtype=np.float32) / self.URM_train.data.shape[0]
+        self.mu = self.URM_train.data.sum(dtype=np.float32) / len(self.URM_train.data)
 
         # 2) item average bias
         # compute the number of non-zero elements for each column
-        col_nnz = np.diff(self.URM_train.indptr)
+        col_nnz = np.ediff1d(self.URM_train.indptr)
 
         # it is equivalent to:
         # col_nnz = X.indptr[1:] - X.indptr[:-1]
         # and it is **much faster** than
         # col_nnz = (X != 0).sum(axis=0)
 
-        URM_train_unbiased = self.URM_train.copy()
+        URM_train_unbiased = self.URM_train.tocsc(copy=True)
         URM_train_unbiased.data -= self.mu
-        self.item_bias = URM_train_unbiased.sum(axis=0) / (col_nnz + self.lambda_item)
-        self.item_bias = np.asarray(self.item_bias).ravel()  # converts 2-d matrix to 1-d array without anycopy
+        self.item_bias = np.divide(np.array(URM_train_unbiased.sum(axis=0)).flatten(), col_nnz + self.lambda_item)
 
         # 3) user average bias
         # NOTE: the user bias is *useless* for the sake of ranking items. We just show it here for educational purposes.
@@ -108,9 +107,9 @@ class GlobalEffects(Recommender):
 
         # now convert the csc matrix to csr for efficient row-wise computation
         URM_train_unbiased_csr = URM_train_unbiased.tocsr()
-        row_nnz = np.diff(URM_train_unbiased_csr.indptr)
+        row_nnz = np.ediff1d(URM_train_unbiased_csr.indptr)
         # finally, let's compute the bias
-        self.user_bias = URM_train_unbiased_csr.sum(axis=1).ravel() / (row_nnz + self.lambda_user)
+        self.user_bias = np.divide(np.array(URM_train_unbiased_csr.sum(axis=1)).flatten(), row_nnz + self.lambda_user)
 
         # 4) precompute the item ranking by using the item bias only
         # the global average and user bias won't change the ranking, so there is no need to use them
@@ -124,13 +123,12 @@ class GlobalEffects(Recommender):
         # Create a single (n_items, ) array with the item score, then copy it for every user
 
         if items_to_compute is not None:
-            item_bias_to_copy = - np.ones(self.n_items, dtype=np.float32) * np.inf
-            item_bias_to_copy[items_to_compute] = self.item_bias[items_to_compute].copy()
+            item_scores = - np.ones((len(user_id_array), self.n_items), dtype=np.float32) * np.inf
+            partial_item_scores = np.add.outer(self.user_bias[user_id_array], self.item_bias[items_to_compute]).astype(np.float32) + self.mu
+            item_scores[:, items_to_compute] = self.mu + np.add.outer(self.user_bias[user_id_array],
+                                                            self.item_bias[items_to_compute]).astype(np.float32)
         else:
-            item_bias_to_copy = self.item_bias.copy()
-
-        item_scores = np.array(item_bias_to_copy, dtype=np.float).reshape((1, -1))
-        item_scores = np.repeat(item_scores, len(user_id_array), axis=0)
+            item_scores = np.add.outer(self.user_bias[user_id_array], self.item_bias).astype(np.float32) + self.mu
 
         item_scores = self._compute_item_score_postprocess_for_cold_items(item_scores)
 
