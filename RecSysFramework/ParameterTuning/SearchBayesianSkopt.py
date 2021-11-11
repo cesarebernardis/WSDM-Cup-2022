@@ -8,7 +8,7 @@ Created on 14/12/18
 
 from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
-from Utils import CategoricalList
+from .CategoricalList import CategoricalList, HashableListAsDict
 
 from RecSysFramework.ParameterTuning.SearchAbstractClass import SearchAbstractClass
 import traceback
@@ -114,7 +114,8 @@ class SearchBayesianSkopt(SearchAbstractClass):
                 key = self.hyperparams_names[index]
                 value_saved = hyperparameters_config_saved[key]
                 if key in self.listtype_hyperparams:
-                    value_saved = list(v for k, v in sorted(value_saved.items()))
+                    value_saved = HashableListAsDict(list(v for k, v in sorted(value_saved.items())))
+                #    print(value_saved, self.hyperparams_values[index].transformed_size)
 
                 # Check if single value categorical. It is aimed at intercepting
                 # Hyperparameters that are chosen via early stopping and set them as the

@@ -29,32 +29,8 @@ from RecSysFramework.ParameterTuning import Recommender_k_Fold_Wrapper, Evaluato
 from RecSysFramework.ParameterTuning.SearchAbstractClass import SearchInputRecommenderArgs
 
 from RecSysFramework.Evaluation import EvaluatorHoldout, EvaluatorNegativeItemSample
+from .CategoricalList import CategoricalList
 
-
-class CategoricalList(Categorical):
-
-    def __init__(self, categories, **categorical_kwargs):
-        super().__init__(self._convert_hashable(categories), **categorical_kwargs)
-
-    def _convert_hashable(self, list_of_lists):
-        return [self._HashableListAsDict(list_)
-                for list_ in list_of_lists]
-
-    class _HashableListAsDict(dict):
-        def __init__(self, arr):
-            self.update({i:val for i, val in enumerate(arr)})
-
-        def __hash__(self):
-            return hash(tuple(sorted(self.items())))
-
-        def __repr__(self):
-            return str(list(self.values()))
-
-        def __getitem__(self, key):
-            return self.tolist()[key]
-
-        def tolist(self):
-            return list(self.values())
 
 
 def _build_ranges_dictionary(ranges, fixed_params):
