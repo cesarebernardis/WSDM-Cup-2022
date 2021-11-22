@@ -154,6 +154,9 @@ class SearchAbstractClass(object):
                save_model="best",
                evaluate_on_test_each_best_solution=True,
                save_metadata=True,
+               URM_seen=None,
+               URM_train_for_validation=None,
+               URM_train_for_test=None,
                ):
 
         raise NotImplementedError("Function search not implemented for this class")
@@ -168,11 +171,17 @@ class SearchAbstractClass(object):
                                save_metadata,
                                save_model,
                                evaluate_on_test_each_best_solution,
-                               n_cases):
+                               n_cases,
+                               URM_seen,
+                               URM_train_for_validation,
+                               URM_train_for_test):
 
         if save_model not in self._SAVE_MODEL_VALUES:
            raise ValueError("{}: parameter save_model must be in '{}', provided was '{}'.".format(self.ALGORITHM_NAME, self._SAVE_MODEL_VALUES, save_model))
 
+        self.URM_seen = URM_seen
+        self.URM_train_for_validation = URM_train_for_validation
+        self.URM_train_for_test = URM_train_for_test
         self.output_folder_path = output_folder_path
         self.output_file_name_root = output_file_name_root
 
@@ -272,12 +281,19 @@ class SearchAbstractClass(object):
 
         train_time = time.time() - start_time
 
+        if self.URM_seen is not None:
+            recommender_instance.set_URM_seen(URM_seen)
+
         return recommender_instance, train_time
 
 
     def _evaluate_on_validation(self, current_fit_parameters):
 
         recommender_instance, train_time = self._fit_model(current_fit_parameters)
+
+        if self.URM_train_for_validation is not None:
+            backup_URM = recommender_instance.get_URM_train()
+            recommender_instance.set_URM_train(self.URM_train_for_validation)
 
         if self.is_early_stopping:
             fed = recommender_instance.get_early_stopping_final_epochs_dict()
@@ -293,12 +309,19 @@ class SearchAbstractClass(object):
 
         result_string = get_result_string_evaluate_on_validation(result_dict, n_decimals=7)
 
+        if self.URM_train_for_validation is not None:
+            recommender_instance.set_URM_train(backup_URM)
+
         return result_dict, result_string, recommender_instance, train_time, evaluation_time
 
 
     def _evaluate_on_test(self, recommender_instance, current_fit_parameters_dict, print_log=True):
 
         start_time = time.time()
+
+        if self.URM_train_for_test is not None:
+            backup_URM = recommender_instance.get_URM_train()
+            recommender_instance.set_URM_train(self.URM_train_for_test)
 
         # Evaluate recommender and get results for the first cutoff
         metric_handler = self.evaluator_test.evaluateRecommender(recommender_instance)
@@ -310,6 +333,9 @@ class SearchAbstractClass(object):
         if print_log:
             self._write_log("{}: Best config evaluated with evaluator_test. Config: {} - results:\n{}\n"
                             .format(self.ALGORITHM_NAME, current_fit_parameters_dict, result_string))
+
+        if self.URM_train_for_test is not None:
+            recommender_instance.set_URM_train(backup_URM)
 
         return result_dict, result_string, evaluation_test_time
 

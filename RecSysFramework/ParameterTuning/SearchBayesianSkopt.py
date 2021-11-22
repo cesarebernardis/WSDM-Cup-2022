@@ -8,7 +8,6 @@ Created on 14/12/18
 
 from skopt import gp_minimize
 from skopt.space import Real, Integer, Categorical
-from Utils import CategoricalList
 
 from RecSysFramework.ParameterTuning.SearchAbstractClass import SearchAbstractClass
 import traceback
@@ -113,8 +112,6 @@ class SearchBayesianSkopt(SearchAbstractClass):
             for index in range(len(self.hyperparams_names)):
                 key = self.hyperparams_names[index]
                 value_saved = hyperparameters_config_saved[key]
-                if key in self.listtype_hyperparams:
-                    value_saved = list(v for k, v in sorted(value_saved.items()))
 
                 # Check if single value categorical. It is aimed at intercepting
                 # Hyperparameters that are chosen via early stopping and set them as the
@@ -173,6 +170,9 @@ class SearchBayesianSkopt(SearchAbstractClass):
                resume_from_saved=False,
                recommender_input_args_last_test=None,
                evaluate_on_test_each_best_solution=True,
+               URM_seen=None,
+               URM_train_for_validation=None,
+               URM_train_for_test=None,
                ):
         """
 
@@ -206,7 +206,10 @@ class SearchBayesianSkopt(SearchAbstractClass):
                                     save_metadata,
                                     save_model,
                                     evaluate_on_test_each_best_solution,
-                                    n_cases)
+                                    n_cases,
+                                    URM_seen,
+                                    URM_train_for_validation,
+                                    URM_train_for_test)
 
         self.parameter_search_space = parameter_search_space
         self.n_random_starts = n_random_starts
@@ -227,9 +230,6 @@ class SearchBayesianSkopt(SearchAbstractClass):
                 self.hyperparams_names.append(name)
                 self.hyperparams_values.append(hyperparam)
                 self.hyperparams[name] = hyperparam
-
-                if isinstance(hyperparam, CategoricalList):
-                    self.listtype_hyperparams.append(name)
 
             else:
                 raise ValueError("{}: Unexpected parameter type: {} - {}"

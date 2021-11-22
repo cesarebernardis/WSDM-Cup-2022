@@ -17,7 +17,7 @@ def select_k_cores(URM, k_value=5, reshape=False):
     return select_asymmetric_k_cores(URM, user_k_value=k_value, item_k_value=k_value, reshape=reshape)
 
 
-def select_asymmetric_k_cores(URM, user_k_value=5, item_k_value=5, reshape=False):
+def select_asymmetric_k_cores(_URM, user_k_value=5, item_k_value=5, reshape=False):
     """
 
     :param URM:
@@ -28,6 +28,7 @@ def select_asymmetric_k_cores(URM, user_k_value=5, item_k_value=5, reshape=False
 
     print("DataDenseSplit_K_Cores: k-cores extraction will zero out some users and items without changing URM shape")
 
+    URM = _URM.copy()
     URM.eliminate_zeros()
 
     n_users, n_items = URM.shape
@@ -117,7 +118,7 @@ def select_asymmetric_k_cores(URM, user_k_value=5, item_k_value=5, reshape=False
         # Remove all columns and rows with no interactions
         return remove_empty_rows_and_cols(URM)
 
-    return URM.copy(), removed_users, removed_items
+    return URM, removed_users, removed_items
 
 
 def split_big_CSR_in_columns(sparse_matrix_to_split, num_split = 2):

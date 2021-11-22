@@ -19,6 +19,8 @@ class Recommender(object):
 
         super(Recommender, self).__init__()
 
+        self.URM_seen = None
+
         self.URM_train = check_matrix(URM_train.copy(), 'csr', dtype=np.float32)
         self.URM_train.eliminate_zeros()
 
@@ -75,6 +77,10 @@ class Recommender(object):
         return self.URM_train.copy()
 
 
+    def set_URM_seen(self, URM_seen):
+        self.URM_seen = URM_seen.tocsr().astype(np.bool).astype(np.float32)
+
+
     def set_URM_train(self, URM_train_new, **kwargs):
 
         assert self.URM_train.shape == URM_train_new.shape, \
@@ -122,11 +128,16 @@ class Recommender(object):
 
     def _remove_seen_on_scores(self, user_id, scores_batch):
 
+        if self.URM_seen is not None:
+            urm = self.URM_seen
+        else:
+            urm = self.URM_train
+
         if len(scores_batch.shape) == 1:
-            seen = self.URM_train.indices[self.URM_train.indptr[user_id]:self.URM_train.indptr[user_id + 1]]
+            seen = urm.indices[urm.indptr[user_id]:urm.indptr[user_id + 1]]
             scores_batch[seen] = -np.inf
         else:
-            seen = self.URM_train[user_id, :]
+            seen = urm[user_id, :]
             seen.data -= np.inf
             scores_batch += seen
 

@@ -75,6 +75,9 @@ class SearchSingleCase(SearchAbstractClass):
                resume_from_saved=False,
                save_model="best",
                evaluate_on_test_each_best_solution=True,
+               URM_seen=None,
+               URM_train_for_validation=None,
+               URM_train_for_test=None,
                ):
 
         assert fit_hyperparameters_values is not None, \
@@ -91,7 +94,11 @@ class SearchSingleCase(SearchAbstractClass):
                                     save_metadata,
                                     save_model,
                                     evaluate_on_test_each_best_solution,
-                                    n_cases)
+                                    n_cases,
+                                    URM_seen,
+                                    URM_train_for_validation,
+                                    URM_train_for_test,
+                                    )
 
         # In case of earlystopping the best_solution_hyperparameters will contain also the number of epochs
         self.best_solution_parameters = fit_hyperparameters_values.copy()

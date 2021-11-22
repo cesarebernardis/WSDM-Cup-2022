@@ -30,6 +30,8 @@ from RecSysFramework.ParameterTuning.SearchAbstractClass import SearchInputRecom
 
 from RecSysFramework.Evaluation import EvaluatorHoldout, EvaluatorNegativeItemSample
 
+from RecSysFramework.DataManager.Utils import select_asymmetric_k_cores
+
 
 class CategoricalList(Categorical):
 
@@ -82,10 +84,12 @@ def _knn_similarity_helper(similarity_type):
     return hyperparameters_range_dictionary
 
 
+
 def run_parameter_search(recommender_class, split_name, dataset_train, dataset_validation, dataset_test=None,
                          URM_name="URM_all", ICM_name=None, output_folder_path=None, save_model="no",
                          metric_to_optimize="Recall", cutoff_to_optimize=10, n_cases=50, n_random_starts=15,
                          resume_from_saved=True, fixed_positional_args=None, fixed_keyword_args=None,
+                         train_user_kcore=0, train_item_kcore=0, URM_seen=None,
                          URM_train_last_test=None, URM_validation_negatives=None, URM_test_negatives=None, **kwargs):
 
     if fixed_keyword_args is None:
@@ -128,6 +132,9 @@ def run_parameter_search(recommender_class, split_name, dataset_train, dataset_v
         constructor_positional_args.append(recommender_class)
         constructor_positional_args.append([])
         for i, urm in enumerate(URM_train):
+            if train_user_kcore > 0 or train_item_kcore > 0:
+                urm, _, _ = select_asymmetric_k_cores(urm, reshape=False,
+                                                user_k_value=train_user_kcore, item_k_value=train_item_kcore)
             posargs = [urm]
             if ICM_name is not None:
                 posargs.append(ICM_object[i])
@@ -165,7 +172,13 @@ def run_parameter_search(recommender_class, split_name, dataset_train, dataset_v
         evaluator_validation = Evaluator_k_Fold_Wrapper(evaluator_validation)
 
     else:
-        constructor_positional_args = [URM_train]
+        if train_user_kcore > 0 or train_item_kcore > 0:
+            urm, _, _ = select_asymmetric_k_cores(URM_train, reshape=False,
+                                    user_k_value=train_user_kcore, item_k_value=train_item_kcore)
+            constructor_positional_args = [urm]
+        else:
+            constructor_positional_args = [URM_train]
+
         if ICM_name is not None:
             constructor_positional_args.append(ICM_object)
         if "W_train" in kwargs:
@@ -398,7 +411,7 @@ def run_parameter_search(recommender_class, split_name, dataset_train, dataset_v
             }
 
             recommender_input_args = SearchInputRecommenderArgs(
-                CONSTRUCTOR_POSITIONAL_ARGS=[URM_train],
+                CONSTRUCTOR_POSITIONAL_ARGS=constructor_positional_args,
                 CONSTRUCTOR_KEYWORD_ARGS={},
                 FIT_POSITIONAL_ARGS=fixed_positional_args,
                 FIT_KEYWORD_ARGS=fixed_keyword_args,
@@ -492,7 +505,7 @@ def run_parameter_search(recommender_class, split_name, dataset_train, dataset_v
             }
 
             recommender_input_args = SearchInputRecommenderArgs(
-                CONSTRUCTOR_POSITIONAL_ARGS=[URM_train],
+                CONSTRUCTOR_POSITIONAL_ARGS=constructor_positional_args,
                 CONSTRUCTOR_KEYWORD_ARGS={},
                 FIT_POSITIONAL_ARGS=fixed_positional_args,
                 FIT_KEYWORD_ARGS=fixed_keyword_args
@@ -633,7 +646,7 @@ def run_parameter_search(recommender_class, split_name, dataset_train, dataset_v
             }
 
             recommender_input_args = SearchInputRecommenderArgs(
-                CONSTRUCTOR_POSITIONAL_ARGS=[URM_train],
+                CONSTRUCTOR_POSITIONAL_ARGS=constructor_positional_args,
                 CONSTRUCTOR_KEYWORD_ARGS={},
                 FIT_POSITIONAL_ARGS=fixed_positional_args,
                 FIT_KEYWORD_ARGS=fixed_keyword_args,
@@ -682,7 +695,9 @@ def run_parameter_search(recommender_class, split_name, dataset_train, dataset_v
                                metric_to_optimize=metric_to_optimize,
                                save_model=save_model,
                                evaluate_on_test_each_best_solution=False,
-                               recommender_input_args_last_test=recommender_input_args_last_test)
+                               recommender_input_args_last_test=recommender_input_args_last_test,
+                               URM_seen=URM_seen,
+                               URM_train_for_validation=URM_train)
 
     except Exception as e:
 
