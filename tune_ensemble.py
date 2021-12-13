@@ -14,13 +14,99 @@ from RecSysFramework.Utils import load_compressed_csr_matrix, save_compressed_cs
 from utils import create_dataset_from_folder, compress_urm, read_ratings, output_scores, row_minmax_scaling, evaluate, first_level_ensemble
 
 
+VAL_WEIGHT = 2.
 EXPERIMENTAL_CONFIG['n_folds'] = 0
+
+
+def _evaluate(_validation, _ratings, _weights):
+    _r = None
+    for name, weights in _weights.items():
+        if _r is None:
+            _r = weights.dot(_ratings[name])
+        else:
+            _r += weights.dot(_ratings[name])
+    user_ndcg, n_evals = evaluate(_r, _validation, cutoff=10)
+    return np.sum(user_ndcg) / n_evals
+
+
+def objective(trial, _ratings, _user_masks, _validations, _profile_lengths_diff=None):
+
+    _pl_weights = {}
+    _exponents = {}
+
+    for recname in _ratings[-1].keys():
+        _pl_weights[recname] = trial.suggest_float(recname, 1e-5, 1., log=True) * \
+                               trial.suggest_categorical(recname + "-sign", [-1., 0., 1.])
+        if _profile_lengths_diff is not None:
+            _exponents[recname] = trial.suggest_float(recname + "-pldiff-exp", 1e-4, 1., log=True) * \
+                                  trial.suggest_categorical(recname + "-pldiff-exp-sign", [-1., 0., 1.])
+
+    _val_weight = VAL_WEIGHT
+    final_score = 0.
+    denominator = 0.
+
+    for fold in range(-1, EXPERIMENTAL_CONFIG['n_folds']):
+
+        n_users = len(_user_masks[fold])
+        weights = np.zeros(n_users, dtype=np.float32)
+        weights[_user_masks[fold]] = 1.
+        val = sps.diags(weights, dtype=np.float32).dot(_validations[fold])
+        val.eliminate_zeros()
+
+        _weights = {}
+        for recname in _ratings[fold].keys():
+            weights = np.zeros(n_users, dtype=np.float32)
+            weights[_user_masks[fold]] = _pl_weights[recname]
+            if _profile_lengths_diff is not None:
+                weights = np.multiply(weights, np.power(_profile_lengths_diff[fold][recname] + 1.,
+                                                        _exponents[recname]))
+            _weights[recname] = sps.diags(weights, dtype=np.float32)
+
+        final_score += _evaluate(val, _ratings[fold], _weights) * _val_weight
+        denominator += _val_weight
+        _val_weight = 1.
+
+    return final_score / denominator
+
+
+def optimize(study_name, storage, ratings, user_masks, validations, usertype, force=False, n_trials=500, profile_lengths_diff=None):
+    print("Starting {} optimization".format(usertype))
+    sampler = optuna.samplers.TPESampler(n_startup_trials=70)
+    if force:
+        try:
+            optuna.study.delete_study(study_name, storage)
+        except KeyError:
+            pass
+    _objective = lambda x: objective(x, ratings, user_masks[usertype], validations, _profile_lengths_diff=profile_lengths_diff)
+    study = optuna.create_study(direction="maximize", study_name=study_name, sampler=sampler,
+                                load_if_exists=True, storage=storage)
+    if n_trials - len(study.trials) > 0:
+        study.optimize(_objective, n_trials=n_trials - len(study.trials), show_progress_bar=True)
+    return study
+
+
+def optimize_all(exam_folder, ratings, user_masks, validations, force=False, n_trials=500, folder=None, profile_lengths_diff=None):
+    result_dict = {}
+    storage = "sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder']
+    if folder is not None:
+        storage += folder + os.sep + "optuna.db"
+    else:
+        storage += exam_folder + os.sep + "optuna.db"
+    for usertype in ["cold", "quite-cold", "quite-warm", "warm"]:
+        if folder is not None:
+            study_name = "base-ensemble-{}-{}-{}".format(usertype.replace("-", ""), folder, exam_folder)
+        else:
+            study_name = "last-level-ensemble-{}-{}".format(usertype.replace("-", ""), exam_folder)
+        study = optimize(study_name, storage, ratings, user_masks, validations, usertype,
+                         force=force, n_trials=n_trials, profile_lengths_diff=profile_lengths_diff)
+        result_dict[usertype] = study.best_params
+    return result_dict
+
+
 
 if __name__ == "__main__":
 
-    max_cutoff = max(EXPERIMENTAL_CONFIG['cutoffs'])
-    n_trials = 500
-    val_weight = 2.
+    n_trials = 400
     cold_user_threshold = EXPERIMENTAL_CONFIG['cold_user_threshold']
     quite_cold_user_threshold = EXPERIMENTAL_CONFIG['quite_cold_user_threshold']
     quite_warm_user_threshold = EXPERIMENTAL_CONFIG['quite_warm_user_threshold']
@@ -62,60 +148,11 @@ if __name__ == "__main__":
         user_masks['warm'].append(exam_profile_lengths[-1] >= quite_warm_user_threshold)
         validations.append(exam_valid.get_URM())
 
-        def _evaluate(_validation, _ratings, _weights):
-            _r = None
-            for name, weights in _weights.items():
-                if _r is None:
-                    _r = weights.dot(_ratings[name])
-                else:
-                    _r += weights.dot(_ratings[name])
-            user_ndcg, n_evals = evaluate(_r, _validation, cutoff=10)
-            return np.sum(user_ndcg) / n_evals
-
-        def objective(trial, _ratings, _user_masks, _profile_lengths_diff=None):
-
-            _pl_weights = {}
-            _exponents = {}
-
-            for recname in _ratings[-1].keys():
-                _pl_weights[recname] = trial.suggest_float(recname, 1e-5, 1., log=True) * \
-                                       trial.suggest_categorical(recname + "-sign", [-1., 1.])
-                if _profile_lengths_diff is not None:
-                    _exponents[recname] = trial.suggest_float(recname + "-pldiff-exp", 1e-4, 1., log=True) * \
-                                          trial.suggest_categorical(recname + "-pldiff-exp-sign", [-1., 1.])
-
-            _val_weight = val_weight
-            final_score = 0.
-            denominator = 0.
-
-            for fold in range(-1, EXPERIMENTAL_CONFIG['n_folds']):
-
-                n_users = len(_user_masks[fold])
-                weights = np.zeros(n_users, dtype=np.float32)
-                weights[_user_masks[fold]] = 1.
-                val = sps.diags(weights, dtype=np.float32).dot(validations[fold])
-                val.eliminate_zeros()
-
-                _weights = {}
-                for recname in _ratings[fold].keys():
-                    weights = np.zeros(n_users, dtype=np.float32)
-                    weights[_user_masks[fold]] = _pl_weights[recname]
-                    if _profile_lengths_diff is not None:
-                        weights = np.multiply(weights, np.power(_profile_lengths_diff[fold][recname] + 1.,
-                                                                _exponents[recname]))
-                    _weights[recname] = sps.diags(weights, dtype=np.float32)
-
-                final_score += _evaluate(val, _ratings[fold], _weights) * _val_weight
-                denominator += _val_weight
-                _val_weight = 1.
-
-            return final_score / denominator
-
         ensemble_ratings = {}
         profile_lengths_diff = [{} for _ in range(-1, EXPERIMENTAL_CONFIG['n_folds'])]
         run_last_level_opt = False
 
-        for folder in EXPERIMENTAL_CONFIG['datasets']:
+        for folder in EXPERIMENTAL_CONFIG['datasets'][5:7]:
 
             if exam_folder in folder:
 
@@ -138,8 +175,6 @@ if __name__ == "__main__":
                     print("Loading", folder, recname)
                     for fold in range(EXPERIMENTAL_CONFIG['n_folds']):
                         validation_folder = exam_folder + "-" + str(fold)
-                        #with open("{}URM_all_train_mapper".format(EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + validation_folder + os.sep), "rb") as file:
-                        #    user_mapper, item_mapper = pkl.load(file)
                         try:
                             ratings[fold][recname] = row_minmax_scaling(
                                 read_ratings(output_folder_path + validation_folder + "_valid_scores.tsv",
@@ -159,58 +194,44 @@ if __name__ == "__main__":
                             del ratings[fold][recname]
 
                 run_opt = False
-                weights_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "best-ensemble-weights.pkl"
+                weights_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "best-ensemble-weights-{}.pkl".format(exam_folder)
                 if os.path.isfile(weights_filename):
                     with open(weights_filename, "rb") as file:
                         result_dict = pkl.load(file)
-                    for k in result_dict['cold'].keys():
-                        if k not in ratings[-1].keys():
+                    for k in ratings[-1].keys():
+                        if k not in result_dict['cold'].keys():
                             run_opt = True
                 else:
                     run_opt = True
 
                 if run_opt:
                     run_last_level_opt = True
-                    result_dict = {}
-                    print("Starting cold optimization")
-                    storage = "sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + "optuna.db"
-                    study_name = "base-ensemble-cold-{}-{}".format(folder, exam_folder)
-                    optuna.study.delete_study(study_name, storage)
-                    _objective = lambda x: objective(x, ratings, user_masks['cold'])
-                    study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-                    study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-                    result_dict["cold"] = study.best_params
 
-                    print("Starting quite-cold optimization")
-                    study_name = "base-ensemble-quitecold-{}-{}".format(folder, exam_folder)
-                    optuna.study.delete_study(study_name, storage)
-                    _objective = lambda x: objective(x, ratings, user_masks['quite-cold'])
-                    study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-                    study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-                    result_dict["quite-cold"] = study.best_params
+                result_dict = optimize_all(exam_folder, ratings, user_masks, validations,
+                                           force=run_opt, n_trials=n_trials, folder=folder)
+                with open(weights_filename, "wb") as file:
+                    pkl.dump(result_dict, file)
 
-                    print("Starting quite-warm optimization")
-                    study_name = "base-ensemble-quitewarm-{}-{}".format(folder, exam_folder)
-                    optuna.study.delete_study(study_name, storage)
-                    _objective = lambda x: objective(x, ratings, user_masks['quite-warm'])
-                    study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-                    study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-                    result_dict["quite-warm"] = study.best_params
-
-                    print("Starting warm optimization")
-                    study_name = "base-ensemble-warm-{}-{}".format(folder, exam_folder)
-                    optuna.study.delete_study(study_name, storage)
-                    _objective = lambda x: objective(x, ratings, user_masks['warm'])
-                    study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-                    study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-                    result_dict["warm"] = study.best_params
-
-                    with open(weights_filename, "wb") as file:
-                        pkl.dump(result_dict, file)
-
-                ensemble_ratings[folder], _ = first_level_ensemble(folder, exam_folder, exam_valid,
+                er, er_test = first_level_ensemble(folder, exam_folder, exam_valid,
                                 exam_profile_lengths[-1], dict((k, user_masks[k][-1]) for k in user_masks.keys()))
 
+                er = row_minmax_scaling(er)
+                er_test = row_minmax_scaling(er_test)
+                ensemble_ratings[folder] = er.copy()
+
+                user_ndcg, n_evals = evaluate(er, exam_valid.get_URM(), cutoff=10)
+                result = np.sum(user_ndcg) / n_evals
+
+                results_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \
+                                   "ratings-ensemble-prediction-{}".format(exam_folder)
+
+                output_scores(results_filename + "-valid.tsv.gz", er.tocsr(), exam_user_mapper, exam_item_mapper,
+                              user_prefix=exam_folder, compress=True)
+                output_scores(results_filename + "-test.tsv.gz", er_test.tocsr(), exam_user_mapper, exam_item_mapper,
+                              user_prefix=exam_folder, compress=True)
+                print(exam_folder, folder, "Ratings optimization finished:", result)
+
+        continue
         weights_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + "best-last-level-ensemble-weights.pkl"
         if os.path.isfile(weights_filename):
             with open(weights_filename, "rb") as file:
@@ -221,41 +242,8 @@ if __name__ == "__main__":
         else:
             run_last_level_opt = True
 
-        if run_last_level_opt:
+        result_dict = optimize_all(exam_folder, [ensemble_ratings], user_masks, validations, force=run_last_level_opt,
+                                   n_trials=n_trials, folder=None, profile_lengths_diff=profile_lengths_diff)
 
-            result_dict = {}
-            print("Starting cold optimization")
-            study_name = "last-level-ensemble-cold-{}".format(exam_folder)
-            storage = "sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + "optuna.db"
-            optuna.study.delete_study(study_name, storage)
-            _objective = lambda x: objective(x, [ensemble_ratings], user_masks['cold'], profile_lengths_diff)
-            study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-            study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-            result_dict["cold"] = study.best_params
-
-            print("Starting quite-cold optimization")
-            study_name = "last-level-ensemble-quitecold-{}".format(exam_folder)
-            optuna.study.delete_study(study_name, storage)
-            _objective = lambda x: objective(x, [ensemble_ratings], user_masks['quite-cold'], profile_lengths_diff)
-            study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-            study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-            result_dict["quite-cold"] = study.best_params
-
-            print("Starting quite-warm optimization")
-            study_name = "last-level-ensemble-quitewarm-{}".format(exam_folder)
-            optuna.study.delete_study(study_name, storage)
-            _objective = lambda x: objective(x, [ensemble_ratings], user_masks['quite-warm'], profile_lengths_diff)
-            study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-            study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-            result_dict["quite-warm"] = study.best_params
-
-            print("Starting warm optimization")
-            study_name = "last-level-ensemble-warm-{}".format(exam_folder)
-            optuna.study.delete_study(study_name, storage)
-            _objective = lambda x: objective(x, [ensemble_ratings], user_masks['warm'], profile_lengths_diff)
-            study = optuna.create_study(direction="maximize", study_name=study_name, load_if_exists=True, storage=storage)
-            study.optimize(_objective, n_trials=max(0, n_trials - len(study.trials)), show_progress_bar=True)
-            result_dict["warm"] = study.best_params
-
-            with open(weights_filename, "wb") as file:
-                pkl.dump(result_dict, file)
+        with open(weights_filename, "wb") as file:
+            pkl.dump(result_dict, file)
