@@ -88,7 +88,7 @@ def train_cv_catboost(_params, _urm, _ratings, _validation, test_df=None, n_fold
             group_id=validation_groups
         )
 
-        model.fit(train, eval_set=validation, verbose_eval=False)
+        model.fit(train, eval_set=validation, verbose_eval=False, early_stopping_rounds=10)
         predictions = model.predict(validation)
         predictions_matrix = sps.csr_matrix((predictions, (_ratings.user.values[test_index],
                                                            _ratings.item.values[test_index])),
@@ -105,7 +105,7 @@ def train_cv_catboost(_params, _urm, _ratings, _validation, test_df=None, n_fold
         _r += predictions_matrix
 
         if test_df is not None:
-            users, counts = np.unique(test_df.user.values[test_index], return_counts=True)
+            users, counts = np.unique(test_df.user.values, return_counts=True)
             test_groups = np.repeat(np.sort(users), counts[np.argsort(users)])
             test_df = test_df.sort_values(by=['user'])
             test = catboost.Pool(
@@ -135,21 +135,26 @@ def objective(trial, _urms, _ratings, _validations):
     final_score = 0.
     denominator = 0.
 
+    #grow_policy = trial.suggest_categorical("grow_policy", ["SymmetricTree", "Depthwise"])
+
     params = {
         "objective": trial.suggest_categorical("objective", ["YetiRank", "YetiRankPairwise", "StochasticFilter",
                                             "StochasticRank:metric=NDCG;top=10", "StochasticRank:metric=DCG;top=10"]),
         "custom_metric": trial.suggest_categorical("custom_metric", ["NDCG:top=10"]),
         "eval_metric": trial.suggest_categorical("eval_metric", ["NDCG:top=10"]),
         "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.4, log=True),
-        "iterations": trial.suggest_int("iterations", 50, 2000),
+        #"grow_policy": grow_policy,
+        "iterations": trial.suggest_categorical("iterations", [2000]),
         "max_depth": trial.suggest_int("max_depth", 2, 12),
         "thread_count": trial.suggest_categorical("thread_count", [6]),
         "random_state": trial.suggest_categorical("random_state", [1]),
-        "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1e-4, 100., log=True),
-        "bagging_temperature": trial.suggest_float("bagging_temperature", 1e-2, 100., log=True),
-        "colsample_bylevel": trial.suggest_float("colsample_bylevel", 1e-2, 1., log=True),
-        "min_child_samples": trial.suggest_int("min_child_samples", 1, 8),
-        
+        "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1e-4, 10., log=True),
+        "bootstrap_type": trial.suggest_categorical("bootstrap_type", ["Bernoulli"]),
+        "subsample": trial.suggest_float("subsample",  1e-2, 0.66, log=True),
+        #"bagging_temperature": trial.suggest_float("bagging_temperature", 1e-2, 100., log=True),
+        "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.1, 1., log=True),
+        "score_function": trial.suggest_categorical("score_function", ["Cosine", "L2"]),
+        "sampling_unit": trial.suggest_categorical("sampling_unit", ["Object", "Group"]),
     }
 
     for fold in range(len(_validations)):
@@ -194,7 +199,7 @@ def optimize_all(exam_folder, urms, ratings, validations, force=False, n_trials=
 
 if __name__ == "__main__":
 
-    n_trials = 250
+    n_trials = 200
 
     for exam_folder in EXPERIMENTAL_CONFIG['test-datasets']:
 
@@ -214,12 +219,18 @@ if __name__ == "__main__":
 
             if exam_folder in folder:
 
-                ratings = featgen.load_folder_features(folder, first_level_ensemble_features=True)
-                factors = featgen.load_user_factors(folder, normalize=True)
-                for j in range(len(factors)):
-                    ratings[j] = ratings[j].merge(factors[j], on=["user"], how="left", sort=True)
+                ratings = featgen.load_folder_features(folder, add_dataset_features_to_last_level_df=False)
 
-                force_run_opt = True
+                predictions = featgen.load_algorithms_predictions(folder)
+                for j in range(len(predictions)):
+                    ratings[j] = ratings[j].merge(predictions[j], on=["user", "item"], how="left", sort=True)
+
+                user_factors, item_factors = featgen.load_user_factors(exam_folder, normalize=True)
+                for j in range(len(user_factors)):
+                    ratings[j] = ratings[j].merge(item_factors[j], on=["item"], how="left", sort=False)
+                    ratings[j] = ratings[j].merge(user_factors[j], on=["user"], how="left", sort=True)
+
+                force_run_opt = False
                 if force_run_opt:
                     run_last_level_opt = True
 

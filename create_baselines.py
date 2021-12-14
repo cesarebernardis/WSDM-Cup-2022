@@ -184,7 +184,7 @@ if __name__ == "__main__":
                         if not os.path.isfile(recfile) or to_recompute:
                             urm = train.get_URM()
                             urm_valid = valid.get_URM()
-                            urm_valid.data[:] = 4.5
+                            urm_valid.data[:] = max(urm.data)
                             urm += urm_valid
                             compute_scores(folder, algorithm, urm, exam_urm_test_neg,
                                            user_mapper=user_mapper, item_mapper=item_mapper,

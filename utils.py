@@ -352,7 +352,7 @@ class FeatureGenerator:
         self.item_mappers.append(exam_item_mapper)
         self.validation_negs.append(self.urm_exam_test_neg.tocoo())
         valid_urm = self.exam_valid.get_URM()
-        valid_urm.data[:] = 4.5
+        valid_urm.data[:] = max(self.urms[-1].data)
         self.urms.append(self.exam_train.get_URM() + valid_urm)
         self.exam_profile_lengths.append(np.ediff1d(self.urms[-1].indptr))
         self.exam_itempops.append(np.ediff1d(self.urms[-1].tocsc().indptr))
@@ -397,7 +397,7 @@ class FeatureGenerator:
         user_mapper, item_mapper = folder_train.get_URM_mapper()
         folder_urm = folder_train.get_URM()
         folder_valid_urm = folder_valid.get_URM()
-        folder_valid_urm.data[:] = 4.5
+        folder_valid_urm.data[:] = max(folder_urm.data)
         folder_test_urm = folder_urm + folder_valid_urm
         return folder_urm, folder_valid_urm, folder_test_urm, user_mapper, item_mapper
 
