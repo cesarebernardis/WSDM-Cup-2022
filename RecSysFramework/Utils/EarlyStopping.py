@@ -88,7 +88,7 @@ class EarlyStoppingModel(object):
         raise NotImplementedError()
 
 
-    def _train_with_early_stopping(self, epochs_max, epochs_min=0, min_perc_increment=0.5,
+    def _train_with_early_stopping(self, epochs_max, epochs_min=0, min_perc_increment=0.2,
                                    validation_every_n=None, stop_on_validation=False,
                                    validation_metric=None, lower_validations_allowed=None, evaluator_object=None,
                                    algorithm_name="Incremental_Training_Early_Stopping"):
@@ -207,14 +207,11 @@ class EarlyStoppingModel(object):
                         lower_validatons_count = 0
 
                     print("{}: New best model found! Updating.".format(algorithm_name))
-
                     self.best_validation_metric = current_metric_value
                     self.best_results_run = results_run
                     self.best_results_evaluation_time = evaluation_time
-
                     self._update_best_model()
-
-                    self.epochs_best = epochs_current +1
+                    self.epochs_best = epochs_current + 1
 
                 if stop_on_validation and lower_validatons_count >= lower_validations_allowed and epochs_current >= epochs_min:
                     convergence = True

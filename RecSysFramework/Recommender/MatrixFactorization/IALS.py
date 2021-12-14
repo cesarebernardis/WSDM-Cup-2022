@@ -52,4 +52,10 @@ class IALS(BaseMatrixFactorizationRecommender):
         self.USER_factors = model.user_factors
         self.ITEM_factors = model.item_factors
 
+        if not isinstance(self.USER_factors, np.ndarray):
+            self.USER_factors = self.USER_factors.to_numpy()
+
+        if not isinstance(self.ITEM_factors, np.ndarray):
+            self.ITEM_factors = self.ITEM_factors.to_numpy()
+
 
