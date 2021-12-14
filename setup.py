@@ -7,16 +7,13 @@ from Cython.Compiler.Options import _directive_defaults
 
 _directive_defaults['linetrace'] = True
 _directive_defaults['binding'] = True
-compile_args = ['-O3', '-ffast-math', '-fopenmp']
+compile_args = ['-O3', '-ffast-math', '-fopenmp', '-Wmaybe-uninitialized', '-Wsign-compare']
 link_args = ['-fopenmp']
 
 # Look for cython files to compile
 cython_files = []
 for path in glob.glob("RecSysFramework/**/*.pyx", recursive=True):
     cython_files.append((path.replace(".pyx", "").replace(os.sep, "."), path))
-
-path = "venv/Lib/site-packages/similaripy/cython_code/s_plus.pyx"
-cython_files.append((path.replace(".pyx", "").replace(os.sep, "."), path))
 
 
 modules = [Extension(file[0], [file[1]], language='c++', extra_compile_args=compile_args, extra_link_args=link_args)

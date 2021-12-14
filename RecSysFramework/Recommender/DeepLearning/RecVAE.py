@@ -141,8 +141,8 @@ class Encoder(nn.Module):
         self.ln1 = nn.LayerNorm(hidden_dim, eps=eps)
         self.fc2 = nn.Linear(hidden_dim, hidden_dim)
         self.ln2 = nn.LayerNorm(hidden_dim, eps=eps)
-        self.fc3 = nn.Linear(hidden_dim, hidden_dim)
-        self.ln3 = nn.LayerNorm(hidden_dim, eps=eps)
+        #self.fc3 = nn.Linear(hidden_dim, hidden_dim)
+        #self.ln3 = nn.LayerNorm(hidden_dim, eps=eps)
         #self.fc4 = nn.Linear(hidden_dim, hidden_dim)
         #self.ln4 = nn.LayerNorm(hidden_dim, eps=eps)
         #self.fc5 = nn.Linear(hidden_dim, hidden_dim)
@@ -157,8 +157,8 @@ class Encoder(nn.Module):
         x = F.dropout(x, p=dropout_rate, training=self.training)
 
         h1 = self.ln1(swish(self.fc1(x)))
-        h2 = self.ln2(swish(self.fc2(h1) + h1))
-        h5 = self.ln3(swish(self.fc3(h2) + h1 + h2))
+        h5 = self.ln2(swish(self.fc2(h1) + h1))
+        #h3 = self.ln3(swish(self.fc3(h2) + h1 + h2))
         #h4 = self.ln4(swish(self.fc4(h3) + h1 + h2 + h3))
         #h5 = self.ln5(swish(self.fc5(h4) + h1 + h2 + h3 + h4))
         return self.fc_mu(h5), self.fc_logvar(h5)
@@ -238,6 +238,24 @@ def generate(batch_size, device, data_in, data_out=None, shuffle=False):
         end_idx = min(st_idx + batch_size, len(idxlist))
         idx = idxlist[st_idx:end_idx]
         yield Batch(device, idx, data_in, data_out)
+
+
+def run(URM_input, model, optimizers, dropout, gamma, batch_size, device, epochs=1):
+    for e in range(epochs):
+        for batch in generate(batch_size=batch_size, device=device,
+                              data_in=URM_input, shuffle=True):
+            ratings = batch.get_ratings_to_dev()
+
+            for optimizer in optimizers:
+                optimizer.zero_grad(set_to_none=True)
+
+            _, loss = model(ratings, gamma=gamma, dropout_rate=dropout)
+            loss.backward()
+
+            for optimizer in optimizers:
+                optimizer.step()
+
+            del ratings
 
 
 class RecVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
@@ -332,6 +350,8 @@ class RecVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
 
     def clear_session(self):
         del self.model
+        del self.optimizers
+        torch.cuda.empty_cache()
 
     def _prepare_model_for_validation(self):
         pass
@@ -340,29 +360,11 @@ class RecVAE(Recommender, EarlyStoppingModel, BaseTempFolder):
         torch.save(self.model.state_dict(), self.best_model_file)
 
     def _run_epoch(self, num_epoch):
-
         self.model.train()
-
-        def run(dropout, epochs=1):
-            for e in range(epochs):
-                for batch in generate(batch_size=self.batch_size, device=self.device,
-                                      data_in=self.URM_input, shuffle=True):
-                    ratings = batch.get_ratings_to_dev()
-
-                    for optimizer in self.optimizers:
-                        optimizer.zero_grad(set_to_none=True)
-
-                    _, loss = self.model(ratings, gamma=self.gamma, dropout_rate=dropout)
-                    loss.backward()
-
-                    for optimizer in self.optimizers:
-                        optimizer.step()
-
-                    del ratings
-
-        run(self.dropout, epochs=self.n_enc_epochs)
+        run(self.URM_input, self.model, self.optimizers, self.dropout, self.gamma, self.batch_size, self.device, epochs=self.n_enc_epochs)
         self.model.update_prior()
-        run(0.0, epochs=self.n_dec_epochs)
+        run(self.URM_input, self.model, self.optimizers, 0., self.gamma, self.batch_size, self.device, epochs=self.n_dec_epochs)
+        torch.cuda.empty_cache()
 
 
     def save_model(self, folder_path, file_name=None):

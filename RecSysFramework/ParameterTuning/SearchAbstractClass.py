@@ -6,7 +6,7 @@ Created on 10/03/2018
 @author: Maurizio Ferrari Dacrema
 """
 
-import time, os, traceback
+import time, os, traceback, gc
 import numpy as np
 
 from RecSysFramework.Utils.EarlyStopping import EarlyStoppingModel
@@ -477,6 +477,7 @@ class SearchAbstractClass(object):
             if cs_op is not None and callable(cs_op):
                 recommender_instance.clear_session()
             del recommender_instance
+            gc.collect()
 
         except (KeyboardInterrupt, SystemExit) as e:
             # If getting a interrupt, terminate without saving the exception
