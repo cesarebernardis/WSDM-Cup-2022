@@ -182,9 +182,10 @@ if __name__ == "__main__":
                     if exam_urm_test_neg is not None:
                         recfile = output_folder_path + os.sep + exam_folder + "_test_scores.tsv.gz"
                         if not os.path.isfile(recfile) or to_recompute:
-                            urm = train.get_URM() + valid.get_URM()
-                            #if exam_folder != folder:
-                            #    urm += exam_valid_urm
+                            urm = train.get_URM()
+                            urm_valid = valid.get_URM()
+                            urm_valid.data[:] = 4.5
+                            urm += urm_valid
                             compute_scores(folder, algorithm, urm, exam_urm_test_neg,
                                            user_mapper=user_mapper, item_mapper=item_mapper,
                                            user_prefix=exam_folder, is_test=True, exam_folder=exam_folder)

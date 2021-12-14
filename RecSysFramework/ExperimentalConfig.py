@@ -19,7 +19,7 @@ EXPERIMENTAL_CONFIG = {
         's1-s2-s3-t1-iu', 's1-s2-s3-t2-iu', 's1-s2-s3-t1-iu-onlyt', 's1-s2-s3-t2-iu-onlyt',
         't1-5core', 't2-5core', 't1-5core-t3', 't2-5core-t3', 't1', 't2'],
     'test-datasets': ['t1', 't2'],
-    'baselines': [TopPop, GlobalEffects, ItemKNNCF, UserKNNCF, P3alpha, RP3beta, PureSVD, IALS, SLIM, EASE_R, HOEASE_R, MultVAE, RecVAE],
+    'baselines': [TopPop, ItemKNNCF, UserKNNCF, P3alpha, RP3beta, PureSVD, IALS, SLIM, EASE_R, HOEASE_R, MultVAE, RecVAE],
     'recap_metrics': ["HR", "NDCG"],
     'cutoffs': [5, 10, 25],
     'cold_user_threshold': 5,

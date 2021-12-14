@@ -9,7 +9,7 @@ from RecSysFramework.Recommender.DataIO import DataIO
 from RecSysFramework.Evaluation.Metrics import ndcg
 from RecSysFramework.ExperimentalConfig import EXPERIMENTAL_CONFIG
 
-from utils import create_dataset_from_folder, compress_urm
+from utils import create_dataset_from_folder, compress_urm, stretch_urm
 
 
 if __name__ == "__main__":
@@ -20,17 +20,54 @@ if __name__ == "__main__":
 
         exam_train, exam_valid, urm_exam_valid_neg, urm_exam_test_neg = create_dataset_from_folder(exam_folder)
         exam_user_mapper, exam_item_mapper = exam_train.get_URM_mapper()
-        exam_profile_lengths = np.ediff1d(exam_train.get_URM().indptr)
+        urm = exam_train.get_URM().tocsr()
+        urm_valid = exam_valid.get_URM().tocsr()
+        exam_profile_lengths = np.ediff1d(urm.indptr)
         vals, counts = np.unique(exam_profile_lengths, return_counts=True)
-        print(vals)
-        print(counts)
-        print()
+        #print(vals)
+        #print(counts)
+        #print()
+
+        for folder in EXPERIMENTAL_CONFIG['datasets']:
+          if exam_folder in folder:
+            train, valid, urm_valid_neg, urm_test_neg = create_dataset_from_folder(folder)
+            user_mapper, item_mapper = train.get_URM_mapper()
+            urm = train.get_URM().tocsr()
+            urm_valid = valid.get_URM().tocsr()
+            new_urm_exam_valid_neg = stretch_urm(urm_exam_valid_neg, exam_user_mapper, exam_item_mapper, user_mapper, item_mapper)
+            new_urm_exam_test_neg = stretch_urm(urm_exam_test_neg, exam_user_mapper, exam_item_mapper, user_mapper, item_mapper)
+
+            valid_in_train = 0
+            train_in_neg = 0
+            train_in_test_neg = 0
+            counter = 0
+            for u in range(urm.shape[0]):
+                indices_in_valid = urm_valid.indices[urm_valid.indptr[u]:urm_valid.indptr[u+1]]
+                indices_in_train = urm.indices[urm.indptr[u]:urm.indptr[u+1]]
+                indices_in_neg = new_urm_exam_valid_neg.indices[new_urm_exam_valid_neg.indptr[u]:new_urm_exam_valid_neg.indptr[u+1]]
+                indices_in_test_neg = new_urm_exam_test_neg.indices[new_urm_exam_test_neg.indptr[u]:new_urm_exam_test_neg.indptr[u+1]]
+                #print(u, indices_in_valid, indices_in_train)
+                if len(indices_in_neg) > 0:
+                    if np.any(np.isin(indices_in_valid, indices_in_train)):
+                        valid_in_train += 1
+                    if np.any(np.isin(indices_in_train, indices_in_neg)):
+                        train_in_neg += 1
+                    if np.any(np.isin(indices_in_train, indices_in_test_neg)):
+                        train_in_test_neg += 1
+                    counter += 1
+
+            print(exam_folder, folder)
+            print("valid_in_train", valid_in_train)
+            print("train_in_neg", train_in_neg)
+            print("train_in_test_neg", train_in_test_neg)
+            print("counter", counter)
+            print()
 
         exam_profile_lengths = np.ediff1d((exam_train.get_URM() + exam_valid.get_URM()).indptr)
         vals, counts = np.unique(exam_profile_lengths, return_counts=True)
-        print(vals)
-        print(counts)
-        print()
+        #print(vals)
+        #print(counts)
+        #print()
     exit()
 
 

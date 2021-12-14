@@ -198,24 +198,20 @@ class EarlyStoppingModel(object):
 
                 # Update optimal model
                 current_metric_value = results_run[validation_metric]
+                lower_validatons_count += 1
 
                 if self.best_validation_metric is None or self.best_validation_metric < current_metric_value:
 
-                    print("{}: New best model found! Updating.".format(algorithm_name))
-
-                    if self.best_validation_metric is None or self.best_validation_metric * (1. + min_perc_increment / 100) < current_metric_value:
+                    if self.best_validation_metric is None or \
+                            self.best_validation_metric * (1. + min_perc_increment / 100) < current_metric_value:
                         lower_validatons_count = 0
-                    else:
-                        lower_validatons_count += 1
 
+                    print("{}: New best model found! Updating.".format(algorithm_name))
                     self.best_validation_metric = current_metric_value
                     self.best_results_run = results_run
                     self.best_results_evaluation_time = evaluation_time
                     self._update_best_model()
                     self.epochs_best = epochs_current + 1
-
-                else:
-                    lower_validatons_count += 1
 
                 if stop_on_validation and lower_validatons_count >= lower_validations_allowed and epochs_current >= epochs_min:
                     convergence = True
