@@ -11,6 +11,7 @@ from RecSysFramework.Recommender.MatrixFactorization import BaseMatrixFactorizat
 
 from sklearn.utils.extmath import randomized_svd
 
+import numpy as np
 import scipy.sparse as sps
 import similaripy as sim
 
@@ -28,7 +29,7 @@ class PureSVD(BaseMatrixFactorizationRecommender):
 
         self._print("Computing SVD decomposition...")
 
-        U, Sigma, VT = randomized_svd(self.URM_train,
+        U, Sigma, VT = randomized_svd(self.URM_train.astype(np.bool).astype(np.float32),
                                       n_components=num_factors,
                                       random_state=random_seed)
 
