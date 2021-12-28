@@ -23,8 +23,8 @@ all-results.csv
 # Windows version of similaripy
 RecSysFramework/Utils/similaripy-0.1.2/
 
-# Add Cython compiled for Windows
-!*.pyd
+# Do not add Cython compiled for Windows
+*.pyd
 
 
 # Distribution / packaging

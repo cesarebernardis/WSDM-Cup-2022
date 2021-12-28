@@ -152,7 +152,7 @@ if __name__ == "__main__":
         profile_lengths_diff = [{} for _ in range(-1, EXPERIMENTAL_CONFIG['n_folds'])]
         run_last_level_opt = False
 
-        for folder in EXPERIMENTAL_CONFIG['datasets'][5:7]:
+        for folder in EXPERIMENTAL_CONFIG['datasets']:
 
             if exam_folder in folder:
 

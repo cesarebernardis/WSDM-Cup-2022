@@ -142,7 +142,7 @@ if __name__ == "__main__":
             recfile = output_folder_path + os.sep + folder + "_valid_scores.tsv.gz"
             if not os.path.isfile(recfile):
                 compute_scores(folder, algorithm, train.get_URM(), urm_valid_neg,
-                        user_mapper=user_mapper, item_mapper=item_mapper, user_prefix=folder, is_test=False)
+                        user_mapper=user_mapper, item_mapper=item_mapper, is_test=False)
 
             for exam_folder in EXPERIMENTAL_CONFIG['test-datasets']:
 
@@ -162,7 +162,7 @@ if __name__ == "__main__":
                             urm.eliminate_zeros()
                             compute_scores(folder, algorithm, urm, exam_urm_valid_neg,
                                            user_mapper=user_mapper, item_mapper=item_mapper,
-                                           user_prefix=exam_folder, is_test=False, exam_folder=validation_folder)
+                                           is_test=False, exam_folder=validation_folder)
 
                     exam_train, exam_valid, exam_urm_valid_neg, exam_urm_test_neg = create_dataset_from_folder(exam_folder)
                     exam_user_mapper, exam_item_mapper = exam_train.get_URM_mapper()
@@ -177,7 +177,7 @@ if __name__ == "__main__":
                     if not os.path.isfile(recfile) or to_recompute:
                         compute_scores(folder, algorithm, train.get_URM(), exam_urm_valid_neg,
                                        user_mapper=user_mapper, item_mapper=item_mapper,
-                                       user_prefix=exam_folder, is_test=False, exam_folder=exam_folder)
+                                       is_test=False, exam_folder=exam_folder)
 
                     if exam_urm_test_neg is not None:
                         recfile = output_folder_path + os.sep + exam_folder + "_test_scores.tsv.gz"
@@ -188,5 +188,5 @@ if __name__ == "__main__":
                             urm += urm_valid
                             compute_scores(folder, algorithm, urm, exam_urm_test_neg,
                                            user_mapper=user_mapper, item_mapper=item_mapper,
-                                           user_prefix=exam_folder, is_test=True, exam_folder=exam_folder)
+                                           is_test=True, exam_folder=exam_folder)
 

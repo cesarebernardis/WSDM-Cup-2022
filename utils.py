@@ -7,6 +7,9 @@ import scipy.sparse as sps
 import pickle as pkl
 import pandas as pd
 import sklearn
+import optuna
+
+from scipy.stats import pearsonr
 
 from RecSysFramework.Recommender.MatrixFactorization import IALS
 from RecSysFramework.DataManager import Dataset
@@ -111,6 +114,7 @@ def compress_urm(a, user_mapper_a, item_mapper_a, user_mapper_b, item_mapper_b, 
 
 
 def row_minmax_scaling(urm):
+    urm = urm.tocsr()
     littleval = 1e-08
     for u in range(urm.shape[0]):
         start = urm.indptr[u]
@@ -140,7 +144,6 @@ def read_ratings(filename, user_mapping, item_mapping):
     elif os.path.isfile(filename + ".gz"):
         filename += ".gz"
         compress = True
-
     if compress:
         file = gzip.open(filename, "rt")
     else:
@@ -154,7 +157,7 @@ def read_ratings(filename, user_mapping, item_mapping):
             continue
 
         split_row = line.strip().split("\t")
-        uid = user_mapping[split_row[0][2:].strip()]
+        uid = user_mapping[split_row[0].strip()]
         iid = item_mapping[split_row[1].strip()]
 
         urm_row.append(uid)
@@ -191,24 +194,17 @@ def output_scores(filename, urm, user_mapper, item_mapper, user_prefix="", item_
     file.close()
 
 
-def evaluate(ratings, exam_test_urm, cheat=False, cutoff=10):
+def evaluate(ratings, exam_test_urm, cutoff=10):
     scores = np.zeros(exam_test_urm.shape[0], dtype=np.float32)
+    ratings = ratings.tocsr()
+    exam_test_urm = exam_test_urm.tocsr()
     n_evals = 0
-    counter = 0
-    jumped = 0
-    if cheat:
-        print("WARNING! CHEATING!")
     for u in range(exam_test_urm.shape[0]):
         if exam_test_urm.indptr[u] != exam_test_urm.indptr[u + 1]:
-            if cheat and ratings.indptr[u] == ratings.indptr[u + 1]:
-                jumped += 1
-                continue
             ranking = np.argsort(ratings.data[ratings.indptr[u]:ratings.indptr[u + 1]])[::-1]
             scores[u] = ndcg(ratings.indices[ratings.indptr[u]:ratings.indptr[u + 1]][ranking],
                              exam_test_urm.indices[exam_test_urm.indptr[u]:exam_test_urm.indptr[u + 1]], cutoff)
             n_evals += 1
-    if cheat:
-        print("Jumped {} evaluations".format(jumped))
     return scores, n_evals
 
 
@@ -308,6 +304,43 @@ def first_level_ensemble(folder, exam_folder, exam_valid, exam_folder_profile_le
     return urm_valid_total, urm_test_total
 
 
+def remove_seen(predictions, seen):
+    seen = seen.tocsr()
+    predictions = predictions.tocsr()
+    for u in range(seen.shape[0]):
+        if predictions.indptr[u] != predictions.indptr[u+1] and seen.indptr[u] != seen.indptr[u+1]:
+            pred_indices = predictions.indices[predictions.indptr[u]:predictions.indptr[u+1]]
+            seen_indices = seen.indices[seen.indptr[u]:seen.indptr[u+1]]
+            min_data = min(predictions.data[predictions.indptr[u]:predictions.indptr[u+1]])
+            mask = np.isin(pred_indices, seen_indices, assume_unique=True)
+            if sum(mask) > 0:
+                predictions.data[np.arange(len(mask))[mask] + predictions.indptr[u]] = min_data - abs(min_data) * 0.02
+    return predictions
+
+
+def get_useless_columns(df, max_correlation=0.9):
+    useless_cols = []
+    columns = df.columns
+    for i, column in enumerate(columns):
+        vals = df[column].unique()
+        if len(vals) < 2:
+            useless_cols.append(column)
+        for column2 in columns[i+1:]:
+            r, p = pearsonr(df[column].to_numpy(), df[column2].to_numpy())
+            if abs(r) >= max_correlation:
+                useless_cols.append(column)
+                break
+    return useless_cols
+
+
+def remove_useless_features(df, columns_to_remove=None, inplace=True):
+    if columns_to_remove is None:
+        columns_to_remove = get_useless_columns(df)
+    if len(columns_to_remove) > 0:
+        df.drop(columns_to_remove, axis=1, inplace=inplace)
+
+
+
 class FeatureGenerator:
 
     def __init__(self, exam_folder, n_folds=0):
@@ -402,7 +435,7 @@ class FeatureGenerator:
         return folder_urm, folder_valid_urm, folder_test_urm, user_mapper, item_mapper
 
 
-    def load_folder_features(self, folder, add_dataset_features_to_last_level_df=True):
+    def load_folder_features(self, folder, include_fold_features=True):
 
         folder_urm, folder_valid_urm, folder_test_urm, user_mapper, item_mapper = self._prepare_folder_urms(folder)
 
@@ -435,69 +468,54 @@ class FeatureGenerator:
                 pop_diff = itempop[item_converters[i]] - epl
             pop_diff = np.maximum(pop_diff, 0)
             local_df = pd.DataFrame(
-                {'item': np.arange(len(pop_diff)), 'pop_diff': pop_diff, 'pop_diff_log': np.log(pop_diff + 1)})
-            ratings[i] = ratings[i].merge(local_df, on=["item"], how="left", sort=False)
+                {'item': np.arange(len(pop_diff)), folder + '_pop_diff': pop_diff, folder + '_pop_diff_log': np.log(pop_diff + 1)})
+            ratings[i] = ratings[i].merge(local_df, on=["item"], how="left", suffixes=("", "_" + folder), sort=False)
 
         for fold in range(self.n_folds + 2):
-            test_pl_df = pd.DataFrame(
-                {'user': np.arange(len(user_converters[fold])),
-                 'pl': test_fpl[user_converters[fold]],
-                 'pl_log': np.log(test_fpl + 1)[user_converters[fold]]})
-            test_pop_df = pd.DataFrame({'item': np.arange(len(item_converters[fold])),
-                                        'popularity': test_itempop[item_converters[fold]],
-                                        'popularity_log': np.log(test_itempop + 1)[item_converters[fold]]})
-            pl_df = pd.DataFrame({'user': np.arange(len(user_converters[fold])),
-                                  'pl': fpl[user_converters[fold]],
-                                  'pl_log': np.log(fpl + 1)[user_converters[fold]]})
-            pop_df = pd.DataFrame(
-                {'item': np.arange(len(item_converters[fold])),
-                 'popularity': itempop[item_converters[fold]],
-                 'popularity_log': np.log(itempop + 1)[item_converters[fold]]})
             if fold == self.n_folds + 1:
-                ratings[fold] = ratings[fold].merge(test_pop_df, on=["item"], how="left", sort=False)
-                ratings[fold] = ratings[fold].merge(test_pl_df, on=["user"], how="left", sort=True)
-                #if self.exam_folder != folder:
-                #    ratings[fold]["in_train"] = False
-                #    compressed_urm = compress_urm(folder_test_urm, user_mapper, item_mapper,
-                #                                  self.user_mappers[fold], self.item_mappers[fold])
-                #    for index, row in ratings[fold].iterrows():
-                #        if compressed_urm[row['user'], row['item']] != 0:
-                #            ratings[fold].iloc[index, ratings[fold].columns.get_loc("in_train")] = True
+                pl_df = pd.DataFrame({'user': np.arange(len(user_converters[fold])),
+                                      folder + '_pl': test_fpl[user_converters[fold]],
+                                      folder + '_pl_log': np.log(test_fpl + 1)[user_converters[fold]]})
+                pop_df = pd.DataFrame({'item': np.arange(len(item_converters[fold])),
+                                       folder + '_popularity': test_itempop[item_converters[fold]],
+                                       folder + '_popularity_log': np.log(test_itempop + 1)[item_converters[fold]]})
             else:
-                ratings[fold] = ratings[fold].merge(pop_df, on=["item"], how="left", sort=False)
-                ratings[fold] = ratings[fold].merge(pl_df, on=["user"], how="left", sort=True)
-                #if self.exam_folder != folder:
-                #    ratings[fold]["in_train"] = False
-                #    compressed_urm = compress_urm(folder_urm, user_mapper, item_mapper,
-                #                                  self.user_mappers[fold], self.item_mappers[fold])
-                #    for index, row in ratings[fold].iterrows():
-                #        if compressed_urm[row['user'], row['item']] != 0:
-                #            ratings[fold].iloc[index, ratings[fold].columns.get_loc("in_train")] = True
+                pl_df = pd.DataFrame({'user': np.arange(len(user_converters[fold])),
+                                      folder + '_pl': fpl[user_converters[fold]],
+                                      folder + '_pl_log': np.log(fpl + 1)[user_converters[fold]]})
+                pop_df = pd.DataFrame({'item': np.arange(len(item_converters[fold])),
+                                       folder + '_popularity': itempop[item_converters[fold]],
+                                       folder + '_popularity_log': np.log(itempop + 1)[item_converters[fold]]})
 
-            if add_dataset_features_to_last_level_df:
-                self.basic_dfs[fold] = self.basic_dfs[fold].merge(ratings[fold], on=["user", "item"], how="left",
-                                                                  suffixes=('', '_' + folder), sort=True)
-
-        for fold in range(self.n_folds + 2):
-            fold_fpl = np.ediff1d(self.urms[fold].tocsr().indptr)
-            fold_itempop = np.ediff1d(self.urms[fold].tocsc().indptr)
-            pl_df = pd.DataFrame(
-                {'user': np.arange(len(fold_fpl)), 'fold_pl': fold_fpl, 'fold_pl_log': np.log(fold_fpl + 1)})
-            pop_df = pd.DataFrame({'item': np.arange(len(fold_itempop)), 'fold_popularity': fold_itempop,
-                                   'fold_popularity_log': np.log(fold_itempop + 1)})
             ratings[fold] = ratings[fold].merge(pop_df, on=["item"], how="left", sort=False)
             ratings[fold] = ratings[fold].merge(pl_df, on=["user"], how="left", sort=True)
+
+        if include_fold_features:
+            for fold in range(self.n_folds + 2):
+                fold_fpl = np.ediff1d(self.urms[fold].tocsr().indptr)
+                fold_itempop = np.ediff1d(self.urms[fold].tocsc().indptr)
+                pl_df = pd.DataFrame(
+                    {'user': np.arange(len(fold_fpl)), folder + '_fold_pl': fold_fpl, folder + '_fold_pl_log': np.log(fold_fpl + 1)})
+                pop_df = pd.DataFrame({'item': np.arange(len(fold_itempop)), folder + '_fold_popularity': fold_itempop,
+                                       folder + '_fold_popularity_log': np.log(fold_itempop + 1)})
+                ratings[fold] = ratings[fold].merge(pop_df, on=["item"], how="left", sort=False)
+                ratings[fold] = ratings[fold].merge(pl_df, on=["user"], how="left", sort=True)
 
         return ratings
 
 
-    def load_algorithms_predictions(self, folder):
+    def load_algorithms_predictions(self, folder, only_best_baselines=False):
 
         ratings = [pd.DataFrame({'user': self.validation_negs[fold].row.copy(),
                                  'item': self.validation_negs[fold].col.copy()})
                    for fold in range(len(self.validation_negs))]
 
-        for algorithm in EXPERIMENTAL_CONFIG['baselines']:
+        if only_best_baselines:
+            algorithms = EXPERIMENTAL_CONFIG['best-baselines']
+        else:
+            algorithms = EXPERIMENTAL_CONFIG['baselines']
+
+        for algorithm in algorithms:
             is_complete = True
             recname = algorithm.RECOMMENDER_NAME
             output_folder_path = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + recname + os.sep
@@ -581,7 +599,7 @@ class FeatureGenerator:
         self.basic_dfs[fold] = self.basic_dfs[fold].merge(
             df, on=on, how="left", suffixes=(left_suffix, right_suffix))
 
-    def load_user_factors(self, folder, num_factors=16, epochs=25, reg=1e-4, normalize=False):
+    def load_user_factors(self, folder, num_factors=16, epochs=25, reg=1e-4, normalize=True, use_val_factors_for_test=False):
         # output_folder_path = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + algorithm.RECOMMENDER_NAME + os.sep
         # dataIO = DataIO(folder_path=output_folder_path)
         # data_dict = dataIO.load_data(file_name=algorithm.RECOMMENDER_NAME + "_metadata")
@@ -591,23 +609,27 @@ class FeatureGenerator:
         hp = {"num_factors": num_factors, "epochs": epochs, "reg": reg}
         user_features, item_features = [], []
         for fold in range(len(self.urms)):
-            urm = folder_urm
-            if fold == len(self.urms) - 1:
-                urm = folder_test_urm
-            recommender = IALS(urm)
-            recommender.fit(**hp)
-            user_factors = recommender.USER_factors.astype(np.float32)[user_converters[fold]]
-            item_factors = recommender.ITEM_factors.astype(np.float32)[item_converters[fold]]
-            if normalize:
-                user_factors = sklearn.preprocessing.normalize(user_factors, axis=1, norm="l2", copy=False)
-                item_factors = sklearn.preprocessing.normalize(item_factors, axis=1, norm="l2", copy=False)
-            uf_df = pd.DataFrame(user_factors, columns=["{}_uf_{}".format(folder, i) for i in range(num_factors)])
-            uf_df["user"] = np.arange(len(uf_df))
-            user_features.append(uf_df)
-            uf_df = pd.DataFrame(item_factors, columns=["{}_if_{}".format(folder, i) for i in range(num_factors)])
-            uf_df["item"] = np.arange(len(uf_df))
-            item_features.append(uf_df)
-            # self.basic_dfs[fold] = self.basic_dfs[fold].merge(uf_df, on=["user"], how="left", sort=True)
+            if fold == len(self.urms) - 1 and use_val_factors_for_test:
+                user_features.append(user_features[-1].copy())
+                item_features.append(item_features[-1].copy())
+            else:
+                urm = folder_urm
+                if fold == len(self.urms) - 1:
+                    urm = folder_test_urm
+                recommender = IALS(urm)
+                recommender.fit(**hp)
+                user_factors = recommender.USER_factors.astype(np.float32)[user_converters[fold]]
+                item_factors = recommender.ITEM_factors.astype(np.float32)[item_converters[fold]]
+                if normalize:
+                    user_factors = sklearn.preprocessing.normalize(user_factors, axis=1, norm="l2", copy=False)
+                    item_factors = sklearn.preprocessing.normalize(item_factors, axis=1, norm="l2", copy=False)
+                uf_df = pd.DataFrame(user_factors, columns=["{}_uf_{}".format(folder, i) for i in range(num_factors)])
+                uf_df["user"] = np.arange(len(uf_df))
+                user_features.append(uf_df)
+                uf_df = pd.DataFrame(item_factors, columns=["{}_if_{}".format(folder, i) for i in range(num_factors)])
+                uf_df["item"] = np.arange(len(uf_df))
+                item_features.append(uf_df)
+
         return user_features, item_features
 
     def get_final_df(self):
@@ -627,4 +649,72 @@ class FeatureGenerator:
 
     def get_validation_negs(self):
         return self.validation_negs
+
+
+
+class Optimizer:
+
+    VAL_WEIGHT = 2.
+    NAME = "Generic"
+
+    def __init__(self, urms, ratings, validations, n_folds=5):
+        self.urms = urms
+        self.ratings = ratings
+        self.validations = validations
+        self.n_folds = n_folds
+        self.best_params = None
+
+
+    def get_params_from_trial(self, trial):
+        pass
+
+    def train_cv(self, _params, _urm, _ratings, _validation, test_df=None):
+        pass
+
+    def train_cv_best_params(self, _urm, _ratings, _validation, test_df=None):
+        return self.train_cv(self.best_params, _urm, _ratings, _validation, test_df=test_df)
+
+    def objective(self, trial):
+        final_score = 0.
+        denominator = 0.
+        params = self.get_params_from_trial(trial)
+        for fold in range(len(self.validations)):
+            if fold == len(self.validations) - 1:
+                _val_weight = self.VAL_WEIGHT
+            else:
+                _val_weight = 1.
+            _, part_score = self.train_cv(params, self.urms[fold], self.ratings[fold], self.validations[fold])
+            final_score += part_score * _val_weight
+            denominator += _val_weight
+        return final_score / denominator
+
+
+    def optimize(self, study_name, storage, force=False, n_trials=250):
+        sampler = optuna.samplers.TPESampler(n_startup_trials=int(0.25 * n_trials))
+        if force:
+            try:
+                optuna.study.delete_study(study_name, storage)
+            except KeyError:
+                pass
+        study = optuna.create_study(direction="maximize", study_name=study_name,
+                    sampler=sampler, load_if_exists=True, storage=storage)
+        if n_trials - len(study.trials) > 0:
+            study.optimize(self.objective, n_trials=n_trials - len(study.trials), show_progress_bar=True)
+        return study
+
+
+    def optimize_all(self, exam_folder, force=False, n_trials=250, folder=None, study_name_suffix=""):
+        result_dict = {}
+        storage = "sqlite:///" + EXPERIMENTAL_CONFIG['dataset_folder']
+        if folder is not None:
+            storage += folder + os.sep + "optuna.db"
+        else:
+            storage += exam_folder + os.sep + "optuna.db"
+        if folder is not None:
+            study_name = "{}-ensemble-{}-{}{}".format(self.NAME, folder, exam_folder, study_name_suffix)
+        else:
+            study_name = "{}-last-level-ensemble-{}{}".format(self.NAME, exam_folder, study_name_suffix)
+        study = self.optimize(study_name, storage, force=force, n_trials=n_trials)
+        self.best_params = study.best_params
+        return self.best_params
 
