@@ -49,6 +49,8 @@ def remove_seen(predictions, seen):
 
 def train_cv_catboost(_params, _urm, _ratings, _validation, test_df=None, n_folds=5):
 
+    #_params["thread_count"] = 14
+
     model = catboost.CatBoostRanker(**_params)
     splitter = GroupKFold(n_folds)
     _ratings = _ratings.sort_values(by=['user'])
@@ -134,27 +136,47 @@ def objective(trial, _urms, _ratings, _validations):
     _val_weight = VAL_WEIGHT
     final_score = 0.
     denominator = 0.
+    bagging_temperature = None
+    subsample = None
+    
+    grow_policy = None #trial.suggest_categorical("grow_policy", ["SymmetricTree", "Depthwise"])
+    objective = trial.suggest_categorical("objective", ["YetiRank", "YetiRankPairwise", 
+        #"StochasticFilter", "StochasticRank:metric=NDCG;top=10", "StochasticRank:metric=DCG;top=10"
+        "QuerySoftMax", "QueryRMSE"
+        ])
 
-    #grow_policy = trial.suggest_categorical("grow_policy", ["SymmetricTree", "Depthwise"])
+    sampling_unit = None
+    if objective == "YetiRankPairwise":
+        sampling_unit = trial.suggest_categorical("sampling_unit", ["Object", "Group"])
+
+    bootstrap_type = trial.suggest_categorical("bootstrap_type", ["Bernoulli", "Bayesian"])
+
+    if bootstrap_type == "Bayesian":
+        bagging_temperature = trial.suggest_float("bagging_temperature", 1e-2, 100., log=True)
+    else:
+        subsample = trial.suggest_float("subsample",  1e-2, 0.7, log=True)
+    
+    max_max_depth = 12
+    if objective in ["YetiRank", "YetiRankPairwise"]:
+        max_max_depth = 8
 
     params = {
-        "objective": trial.suggest_categorical("objective", ["YetiRank", "YetiRankPairwise", "StochasticFilter",
-                                            "StochasticRank:metric=NDCG;top=10", "StochasticRank:metric=DCG;top=10"]),
+        "objective": objective,
         "custom_metric": trial.suggest_categorical("custom_metric", ["NDCG:top=10"]),
         "eval_metric": trial.suggest_categorical("eval_metric", ["NDCG:top=10"]),
-        "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.4, log=True),
-        #"grow_policy": grow_policy,
-        "iterations": trial.suggest_categorical("iterations", [2000]),
-        "max_depth": trial.suggest_int("max_depth", 2, 12),
-        "thread_count": trial.suggest_categorical("thread_count", [6]),
+        "learning_rate": trial.suggest_float("learning_rate", 1e-2, 0.4, log=True),
+        "grow_policy": grow_policy,
+        "iterations": trial.suggest_categorical("iterations", [1500]),
+        "task_type": trial.suggest_categorical("task_type", ["GPU"]),
+        "max_depth": trial.suggest_int("max_depth", 2, max_max_depth),
         "random_state": trial.suggest_categorical("random_state", [1]),
         "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1e-4, 10., log=True),
-        "bootstrap_type": trial.suggest_categorical("bootstrap_type", ["Bernoulli"]),
-        "subsample": trial.suggest_float("subsample",  1e-2, 0.66, log=True),
-        #"bagging_temperature": trial.suggest_float("bagging_temperature", 1e-2, 100., log=True),
-        "colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.1, 1., log=True),
+        "bootstrap_type": bootstrap_type,
+        "subsample": subsample,
+        "bagging_temperature": bagging_temperature,
+        #"colsample_bylevel": trial.suggest_float("colsample_bylevel", 0.1, 1., log=True),
         "score_function": trial.suggest_categorical("score_function", ["Cosine", "L2"]),
-        "sampling_unit": trial.suggest_categorical("sampling_unit", ["Object", "Group"]),
+        "sampling_unit": sampling_unit,
     }
 
     for fold in range(len(_validations)):
@@ -199,7 +221,7 @@ def optimize_all(exam_folder, urms, ratings, validations, force=False, n_trials=
 
 if __name__ == "__main__":
 
-    n_trials = 200
+    n_trials = 250
 
     for exam_folder in EXPERIMENTAL_CONFIG['test-datasets']:
 
@@ -213,8 +235,6 @@ if __name__ == "__main__":
         user_mappers = featgen.get_user_mappers()
         item_mappers = featgen.get_item_mappers()
 
-        run_last_level_opt = False
-
         for folder in EXPERIMENTAL_CONFIG['datasets']:
 
             if exam_folder in folder:
@@ -225,17 +245,13 @@ if __name__ == "__main__":
                 for j in range(len(predictions)):
                     ratings[j] = ratings[j].merge(predictions[j], on=["user", "item"], how="left", sort=True)
 
-                user_factors, item_factors = featgen.load_user_factors(exam_folder, normalize=True)
+                user_factors, item_factors = featgen.load_user_factors(folder, num_factors=12, normalize=True)
                 for j in range(len(user_factors)):
                     ratings[j] = ratings[j].merge(item_factors[j], on=["item"], how="left", sort=False)
                     ratings[j] = ratings[j].merge(user_factors[j], on=["user"], how="left", sort=True)
 
-                force_run_opt = False
-                if force_run_opt:
-                    run_last_level_opt = True
-
                 result_dict = optimize_all(exam_folder, urms, ratings, validations,
-                                           force=force_run_opt, n_trials=n_trials, folder=folder)
+                                           force=False, n_trials=n_trials, folder=folder)
 
                 results_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \
                                    "catboost-ensemble-prediction-{}".format(exam_folder)
@@ -252,21 +268,6 @@ if __name__ == "__main__":
                     er, result = train_cv_catboost(result_dict, urms[fold], ratings[fold], validations[fold], n_folds=5)
                     output_scores(results_filename + "-f{}.tsv.gz".format(fold), er.tocsr(), user_mappers[fold], item_mappers[fold],
                               user_prefix=exam_folder, compress=True)
-
-        continue
-
-        basic_dfs = featgen.get_final_df()
-        ratings_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
-        result_dict = optimize_all(exam_folder, urms, basic_dfs, validations,
-                                   force=True, n_trials=n_trials, folder=None)
-        er, er_test, result = train_cv_catboost(result_dict, urms[-2], basic_dfs[-2],
-                                            validations[-1], test_df=basic_dfs[-1], n_folds=10)
-        print("FINAL ENSEMBLE {}: {:.8f}".format(exam_folder, result))
-        output_scores(ratings_folder + "valid_scores.tsv", er.tocsr(), user_mappers[-2], item_mappers[-2],
-                      user_prefix=exam_folder, compress=False)
-        output_scores(ratings_folder + "test_scores.tsv", er_test.tocsr(), user_mappers[-1], item_mappers[-1],
-                      user_prefix=exam_folder, compress=False)
-
 
         del basic_dfs
         del validations
