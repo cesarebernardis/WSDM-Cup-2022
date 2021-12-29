@@ -131,14 +131,13 @@ if __name__ == "__main__":
                         help='Number of trials for hyperparameter optimization')
     parser.add_argument('--nfolds', '-cv', metavar='FOLDS', type=int, nargs='?', default=5,
                         help='Number of CV folds for hyperparameter optimization')
-    parser.add_argument('--include-subs', '-i', nargs=0, dest="include_subs", default=False, const=True,
-                        help='Whether to include good submissions in the ensemble')
-    parser.add_argument('--force-hpo', '-f', nargs=0, dest="force_hpo", default=False, const=True,
+    parser.add_argument('--force-hpo', '-f', nargs='?', dest="force_hpo", default=False, const=True,
                         help='Whether to run a new hyperparameter optimization discarding previous ones')
 
     args = parser.parse_args()
     n_trials = args.ntrials
     n_folds = args.nfolds
+    force_hpo = args.force_hpo
 
     for exam_folder in EXPERIMENTAL_CONFIG['test-datasets']:
 
@@ -173,7 +172,7 @@ if __name__ == "__main__":
                     remove_useless_features(ratings[i], columns_to_remove=useless_cols, inplace=True)
 
                 optimizer = LightGBMOptimizer(urms, ratings, validations, n_folds=n_folds)
-                optimizer.optimize_all(exam_folder, force=args.force_hpo, n_trials=n_trials, folder=folder, study_name_suffix="-f")
+                optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=folder, study_name_suffix="-f")
 
                 results_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \
                                    "lgbm-ensemble-prediction-{}".format(exam_folder)

@@ -1,3 +1,5 @@
+#!/bin/bash
+
 conda create -y -n wsdmcup --file requirements.txt python=3.8 -c anaconda -c conda-forge
 
 source activate wsdmcup

@@ -9,3 +9,6 @@ h5py
 tqdm
 scikit-optimize>=0.8
 optuna
+catboost
+lightgbm
+xgboost
