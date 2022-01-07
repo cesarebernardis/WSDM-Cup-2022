@@ -21,6 +21,7 @@ from RecSysFramework.ExperimentalConfig import EXPERIMENTAL_CONFIG
 from RecSysFramework.Utils import load_compressed_csr_matrix, save_compressed_csr_matrix
 
 from tune_ensemble_lightgbm import LightGBMOptimizer
+from tune_ensemble_xgboost import XGBoostOptimizer
 from utils import FeatureGenerator, remove_seen, remove_useless_features, get_useless_columns
 from utils import create_dataset_from_folder, compress_urm, read_ratings, output_scores, row_minmax_scaling, evaluate, first_level_ensemble, stretch_urm, make_submission
 
@@ -150,7 +151,7 @@ if __name__ == "__main__":
                 all_predictions.append(featgen.load_folder_features(folder, include_fold_features=False))
                 featgen.load_ratings_ensemble_feature(folder)
                 featgen.load_lgbm_ensemble_feature(folder)
-                #featgen.load_catboost_ensemble_feature(folder)
+                featgen.load_catboost_ensemble_feature(folder)
                 featgen.load_xgb_ensemble_feature(folder)
 
         basic_dfs = featgen.get_final_df()

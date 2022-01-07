@@ -17,6 +17,17 @@ from RecSysFramework.Evaluation.Metrics import ndcg
 from RecSysFramework.ExperimentalConfig import EXPERIMENTAL_CONFIG
 
 
+def reduce_score(predictions, perc=0.1):
+    predictions = predictions.tocsr()
+    pl = np.ediff1d(predictions.indptr)
+    users_in_test = np.arange(len(pl))[pl > 0]
+    users_to_delete = users_in_test[-int(perc * len(users_in_test)):]
+    for u in users_to_delete:
+        predictions.data[predictions.indptr[u]:predictions.indptr[u+1]] = 0.
+    predictions.eliminate_zeros()
+    return predictions
+
+
 def create_dataset_from_folder(folder):
     basepath = EXPERIMENTAL_CONFIG["dataset_folder"] + folder + os.sep
 
@@ -170,6 +181,8 @@ def read_ratings(filename, user_mapping, item_mapping):
 
 
 def output_scores(filename, urm, user_mapper, item_mapper, user_prefix="", item_prefix="", compress=True):
+
+    urm = urm.tocsr()
     inv_user_mapper = {v: k for k, v in user_mapper.items()}
     inv_item_mapper = {v: k for k, v in item_mapper.items()}
 
@@ -208,7 +221,28 @@ def evaluate(ratings, exam_test_urm, cutoff=10):
     return scores, n_evals
 
 
+def break_ties_with_filler(prediction, filler, penalization=1e-12, use_filler_ratings=False):
+    prediction = prediction.tocsr()
+    _filler = filler.tocsr(copy=True).astype(np.float32)
+    rank_scores = np.arange(max(np.ediff1d(prediction.indptr))) * penalization
+    assert prediction.shape == _filler.shape, "Prediction and filler have different shapes"
+    for u in range(prediction.shape[0]):
+        if _filler.indptr[u] != _filler.indptr[u+1]:
+            start = _filler.indptr[u]
+            end = _filler.indptr[u+1]
+            if prediction.indptr[u] != prediction.indptr[u+1]:
+                if use_filler_ratings:
+                    _filler.data[start:end] *= penalization
+                else:
+                    ranking = np.argsort(_filler.data[start:end])
+                    _filler.data[ranking + start] = rank_scores[:(end - start)]
+            else:
+                _filler.data[start:end] = 0.
+    return prediction + _filler
+
+
 def make_submission():
+
     sub_filename = "submission" + os.sep + "submission.zip"
 
     os.makedirs("submission" + os.sep + "t1", exist_ok=True)
@@ -239,15 +273,6 @@ def first_level_ensemble(folder, exam_folder, exam_valid, exam_folder_profile_le
     urm_valid_total = None
     urm_test_total = None
 
-    # exam_train, _, _, _ = create_dataset_from_folder(exam_folder)
-    # pop = np.ediff1d(exam_train.get_URM().tocsc().indptr)
-    # itempop = np.power(pop + 1, 0.02)
-    # itempop = np.zeros(len(exam_item_mapper))
-    # itempop[np.argsort(pop)[-1000:]] = 1.
-
-    # print(itempop, min(itempop), max(itempop))
-    # itempop = sps.diags(itempop)
-
     for recname in ensemble_weights['cold'].keys():
 
         output_folder_path = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + recname + os.sep
@@ -256,19 +281,6 @@ def first_level_ensemble(folder, exam_folder, exam_valid, exam_folder_profile_le
                                    exam_user_mapper, exam_item_mapper)
         except Exception as e:
             continue
-
-        """
-        user_ndcg, n_evals = evaluate(ratings, exam_valid.get_URM(), cutoff=10)
-        avg_ndcg = np.sum(user_ndcg) / n_evals
-        outstr = "\t".join(map(str, ["Validation", exam_folder, folder, recname, avg_ndcg]))
-        print(outstr)
-
-        user_ndcg, n_evals = evaluate(row_minmax_scaling(ratings).dot(itempop), exam_valid.get_URM(), cutoff=10)
-        avg_ndcg = np.sum(user_ndcg) / n_evals
-        outstr = "\t".join(map(str, ["Validation", exam_folder, folder, recname, avg_ndcg]))
-        print("POP BOOSTED", outstr)
-        continue
-        """
 
         algo_weights = np.zeros(ratings.shape[0], dtype=np.float32)
         for usertype in ["cold", "quite-cold", "quite-warm", "warm"]:
@@ -296,11 +308,6 @@ def first_level_ensemble(folder, exam_folder, exam_valid, exam_folder_profile_le
         else:
             urm_test_total += ratings
 
-    # user_ndcg, n_evals = evaluate(urm_valid_total, exam_valid.get_URM(), cutoff=10)
-    # avg_ndcg = np.sum(user_ndcg) / n_evals
-    # outstr = "\t".join(map(str, ["Validation", exam_folder, folder, "First level Ensemble", avg_ndcg]))
-    # print(outstr)
-
     return urm_valid_total, urm_test_total
 
 
@@ -318,18 +325,19 @@ def remove_seen(predictions, seen):
     return predictions
 
 
-def get_useless_columns(df, max_correlation=0.9):
+def get_useless_columns(df, max_correlation=0.95, alpha=0.05):
     useless_cols = []
     columns = df.columns
     for i, column in enumerate(columns):
         vals = df[column].unique()
         if len(vals) < 2:
             useless_cols.append(column)
-        for column2 in columns[i+1:]:
-            r, p = pearsonr(df[column].to_numpy(), df[column2].to_numpy())
-            if abs(r) >= max_correlation:
-                useless_cols.append(column)
-                break
+        else:
+            for column2 in columns[i+1:]:
+                r, p = pearsonr(df[column].to_numpy(), df[column2].to_numpy())
+                if abs(r) >= max_correlation and p <= alpha:
+                    useless_cols.append(column)
+                    break
     return useless_cols
 
 
@@ -553,10 +561,12 @@ class FeatureGenerator:
         return ratings
 
 
-    def _load_ensemble_feature(self, folder, algo):
+    def _load_ensemble_feature(self, folder, algo, break_ties=False, break_ties_penalization=1e-2):
 
-        results_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \
-                           "{}-ensemble-prediction-{}".format(algo, self.exam_folder)
+        results_basepath = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep
+
+        results_filename = results_basepath + "{}-ensemble-prediction-{}".format(algo, self.exam_folder)
+        break_ties_filename = results_basepath + "ratings-ensemble-prediction-{}".format(self.exam_folder)
         feat_name = '{}-{}-ensemble'.format(folder, algo)
         ratings = []
 
@@ -567,33 +577,42 @@ class FeatureGenerator:
                     r = row_minmax_scaling(
                         read_ratings(results_filename + "-f{}.tsv.gz".format(fold),
                                      self.user_mappers[fold], self.item_mappers[fold])).tocoo()
+                    if break_ties:
+                        filler = row_minmax_scaling(read_ratings(break_ties_filename + "-f{}.tsv.gz".format(fold), self.user_mappers[fold], self.item_mappers[fold]))
+                        r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
                     ratings.append(pd.DataFrame({'user': r.row, 'item': r.col, feat_name: r.data}))
                     self.basic_dfs[fold] = self.basic_dfs[fold].merge(ratings[-1], on=["user", "item"], how="left", sort=True)
 
             r = row_minmax_scaling(
                 read_ratings(results_filename + "-valid.tsv.gz", self.user_mappers[-2], self.item_mappers[-2])).tocoo()
+            if break_ties:
+                filler = row_minmax_scaling(read_ratings(break_ties_filename + "-valid.tsv.gz", self.user_mappers[-2], self.item_mappers[-2]))
+                r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
             ratings.append(pd.DataFrame({'user': r.row, 'item': r.col, feat_name: r.data}))
             self.basic_dfs[-2] = self.basic_dfs[-2].merge(ratings[-1], on=["user", "item"], how="left", sort=True)
 
             r = row_minmax_scaling(
                 read_ratings(results_filename + "-test.tsv.gz", self.user_mappers[-1], self.item_mappers[-1])).tocoo()
+            if break_ties:
+                filler = row_minmax_scaling(read_ratings(break_ties_filename + "-test.tsv.gz", self.user_mappers[-1], self.item_mappers[-1]))
+                r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
             ratings.append(pd.DataFrame({'user': r.row, 'item': r.col, feat_name: r.data}))
             self.basic_dfs[-1] = self.basic_dfs[-1].merge(ratings[-1], on=["user", "item"], how="left", sort=True)
 
         return ratings
 
-    def load_lgbm_ensemble_feature(self, folder):
-        return self._load_ensemble_feature(folder, "lgbm")
+    def load_lgbm_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
+        return self._load_ensemble_feature(folder, "lgbm", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
-    def load_catboost_ensemble_feature(self, folder):
-        return self._load_ensemble_feature(folder, "catboost")
+    def load_catboost_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
+        return self._load_ensemble_feature(folder, "catboost", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
-    def load_xgb_ensemble_feature(self, folder):
-        return self._load_ensemble_feature(folder, "xgb")
+    def load_xgb_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
+        return self._load_ensemble_feature(folder, "xgb", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
-    def load_ratings_ensemble_feature(self, folder):
+    def load_ratings_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
         # WARNING! ratings ensemble not available for local cv
-        return self._load_ensemble_feature(folder, "ratings")
+        return self._load_ensemble_feature(folder, "ratings", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
     def add_features(self, df, fold, on=["user", "item"], left_suffix="", right_suffix=""):
         self.basic_dfs[fold] = self.basic_dfs[fold].merge(
@@ -657,22 +676,38 @@ class Optimizer:
     VAL_WEIGHT = 2.
     NAME = "Generic"
 
-    def __init__(self, urms, ratings, validations, n_folds=5):
+    def __init__(self, urms, ratings, validations, fillers=None, n_folds=5, random_trials_perc=0.25):
         self.urms = urms
         self.ratings = ratings
         self.validations = validations
         self.n_folds = n_folds
+        if fillers is None:
+            self.fillers = [None for _ in range(len(urms))]
+        else:
+            self.fillers = []
+            for filler in fillers:
+                f = row_minmax_scaling(filler)
+                scores = np.arange(max(np.ediff1d(f.indptr)))
+                scores = np.around(scores / (scores[-1] + 1), decimals=1)
+                for u in range(f.shape[0]):
+                    start = f.indptr[u]
+                    end = f.indptr[u+1]
+                    if start != end:
+                        ranking = np.argsort(f.data[start:end])
+                        f.data[start + ranking] = scores[-(end - start):]
+                self.fillers.append(f)
         self.best_params = None
+        self.random_trials_perc = random_trials_perc
 
 
     def get_params_from_trial(self, trial):
         pass
 
-    def train_cv(self, _params, _urm, _ratings, _validation, test_df=None):
+    def train_cv(self, _params, _urm, _ratings, _validation, test_df=None, filler=None):
         pass
 
-    def train_cv_best_params(self, _urm, _ratings, _validation, test_df=None):
-        return self.train_cv(self.best_params, _urm, _ratings, _validation, test_df=test_df)
+    def train_cv_best_params(self, _urm, _ratings, _validation, test_df=None, filler=None):
+        return self.train_cv(self.best_params, _urm, _ratings, _validation, test_df=test_df, filler=filler)
 
     def objective(self, trial):
         final_score = 0.
@@ -683,14 +718,15 @@ class Optimizer:
                 _val_weight = self.VAL_WEIGHT
             else:
                 _val_weight = 1.
-            _, part_score = self.train_cv(params, self.urms[fold], self.ratings[fold], self.validations[fold])
+            _, part_score = self.train_cv(params, self.urms[fold], self.ratings[fold], self.validations[fold],
+                                          filler=self.fillers[fold])
             final_score += part_score * _val_weight
             denominator += _val_weight
         return final_score / denominator
 
 
     def optimize(self, study_name, storage, force=False, n_trials=250):
-        sampler = optuna.samplers.TPESampler(n_startup_trials=int(0.25 * n_trials))
+        sampler = optuna.samplers.TPESampler(n_startup_trials=int(self.random_trials_perc * n_trials))
         if force:
             try:
                 optuna.study.delete_study(study_name, storage)

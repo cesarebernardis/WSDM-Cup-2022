@@ -90,9 +90,10 @@ class LeaveKOut(DataSplitter):
         users_to_preserve = np.arange(URM.shape[0])[user_interactions >= min_user_interactions]
         del urm_threshold
 
-        print("DataSplitterLeaveKOut: Removing {} of {} users because they have less than the {} interactions required for {} splits".format(
-                URM.shape[0] - len(users_to_preserve), URM.shape[0], min_user_interactions, test_number))
-        users_to_remove = np.setdiff1d(np.arange(URM.shape[0]), users_to_preserve)
+        if not self.allow_cold_users:
+            print("DataSplitterLeaveKOut: Removing {} of {} users because they have less than the {} interactions required for {} splits".format(
+                    URM.shape[0] - len(users_to_preserve), URM.shape[0], min_user_interactions, test_number))
+            users_to_remove = np.setdiff1d(np.arange(URM.shape[0]), users_to_preserve)
 
         n_users, n_items = URM.shape
         user_indices = []
@@ -171,14 +172,16 @@ class LeaveKOut(DataSplitter):
                         URM_dict=URM_train, URM_mappers_dict=dataset.get_URM_mappers_dict(),
                         ICM_dict=dataset.get_ICM_dict(), ICM_mappers_dict=dataset.get_ICM_mappers_dict(),
                         UCM_dict=dataset.get_UCM_dict(), UCM_mappers_dict=dataset.get_UCM_mappers_dict())
-        train.remove_users(users_to_remove)
+        if not self.allow_cold_users:
+            train.remove_users(users_to_remove)
 
         test = Dataset(dataset.get_name(), base_folder=dataset.get_base_folder(),
                        postprocessings=dataset.get_postprocessings(),
                        URM_dict=URM_test, URM_mappers_dict=dataset.get_URM_mappers_dict(),
                        ICM_dict=dataset.get_ICM_dict(), ICM_mappers_dict=dataset.get_ICM_mappers_dict(),
                        UCM_dict=dataset.get_UCM_dict(), UCM_mappers_dict=dataset.get_UCM_mappers_dict())
-        test.remove_users(users_to_remove)
+        if not self.allow_cold_users:
+            test.remove_users(users_to_remove)
 
         if self.with_validation:
             validation = Dataset(dataset.get_name(), base_folder=dataset.get_base_folder(),
@@ -186,7 +189,8 @@ class LeaveKOut(DataSplitter):
                                  URM_dict=URM_validation, URM_mappers_dict=dataset.get_URM_mappers_dict(),
                                  ICM_dict=dataset.get_ICM_dict(), ICM_mappers_dict=dataset.get_ICM_mappers_dict(),
                                  UCM_dict=dataset.get_UCM_dict(), UCM_mappers_dict=dataset.get_UCM_mappers_dict())
-            validation.remove_users(users_to_remove)
+            if not self.allow_cold_users:
+                validation.remove_users(users_to_remove)
             return train, test, validation
         else:
             return train, test

@@ -20,6 +20,7 @@ from RecSysFramework.Recommender.MatrixFactorization import BPRMF, FunkSVD, AsyS
 from RecSysFramework.Recommender.MatrixFactorization import PureSVD, PureSVDSimilarity
 from RecSysFramework.Recommender.MatrixFactorization import IALS
 from RecSysFramework.Recommender.MatrixFactorization import NMF
+from RecSysFramework.Recommender.MatrixFactorization import WARP_LightFM, KOSWARP_LightFM, BPR_LightFM
 
 from RecSysFramework.Utils import EarlyStoppingModel
 
@@ -452,6 +453,56 @@ def run_parameter_search(recommender_class, split_name, dataset_train, dataset_v
                 "negative_reg": Real(low=1e-5, high=1e-2, prior='log-uniform'),
                 "learning_rate": Real(low=1e-4, high=1e-1, prior='log-uniform'),
                 "dropout_quota": Real(low=0.0, high=0.7, prior='uniform'),
+            }
+
+            recommender_input_args = SearchInputRecommenderArgs(
+                CONSTRUCTOR_POSITIONAL_ARGS=constructor_positional_args,
+                CONSTRUCTOR_KEYWORD_ARGS={},
+                FIT_POSITIONAL_ARGS=fixed_positional_args,
+                FIT_KEYWORD_ARGS=fixed_keyword_args
+            )
+
+        ##########################################################################################################
+
+        if recommender_class in [WARP_LightFM, BPR_LightFM]:
+
+            hyperparameters_range_dictionary = {
+                "learning_schedule": Categorical(["adadelta", "adagrad"]),
+                "epochs": Categorical([300]),
+                "num_factors": Integer(8, 512, prior='log-uniform'),
+                "user_reg": Real(low=1e-6, high=1e-2, prior='log-uniform'),
+                "item_reg": Real(low=1e-6, high=1e-2, prior='log-uniform'),
+                "learning_rate": Real(low=1e-3, high=0.1, prior='log-uniform'),
+                "rho": Real(low=0.90, high=0.99, prior='uniform'),
+                "epsilon": Real(low=1e-8, high=1e-4, prior='log-uniform'),
+            }
+
+            if recommender_class is WARP_LightFM:
+                hyperparameters_range_dictionary["max_sampled"] = Integer(5, 30, prior='log-uniform')
+
+            recommender_input_args = SearchInputRecommenderArgs(
+                CONSTRUCTOR_POSITIONAL_ARGS=constructor_positional_args,
+                CONSTRUCTOR_KEYWORD_ARGS={},
+                FIT_POSITIONAL_ARGS=fixed_positional_args,
+                FIT_KEYWORD_ARGS=fixed_keyword_args
+            )
+
+        ##########################################################################################################
+
+        if recommender_class is KOSWARP_LightFM:
+
+            hyperparameters_range_dictionary = {
+                "learning_schedule": Categorical(["adadelta", "adagrad"]),
+                "epochs": Categorical([300]),
+                "num_factors": Integer(8, 512, prior='log-uniform'),
+                "max_sampled": Integer(5, 30, prior='log-uniform'),
+                "n": Integer(5, 20, prior='uniform'),
+                "k": Integer(2, 10, prior='uniform'),
+                "user_reg": Real(low=1e-6, high=1e-2, prior='log-uniform'),
+                "item_reg": Real(low=1e-6, high=1e-2, prior='log-uniform'),
+                "learning_rate": Real(low=1e-3, high=0.1, prior='log-uniform'),
+                "rho": Real(low=0.90, high=0.99, prior='uniform'),
+                "epsilon": Real(low=1e-8, high=1e-4, prior='log-uniform'),
             }
 
             recommender_input_args = SearchInputRecommenderArgs(

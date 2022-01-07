@@ -194,7 +194,7 @@ def generate_URM_test_negative(URM_train, URM_test, negative_samples=100, type="
                     density[interactions[i]] = density_backup[interactions[i]]
 
         else:
-            indices[user] = np.emtpy(0, dtype=np.int32)
+            indices[user] = np.empty(0, dtype=np.int32)
 
         indptr[user+1] = indptr[user] + samples
         ubatch_idx += 1
