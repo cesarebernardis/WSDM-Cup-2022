@@ -38,11 +38,9 @@ class DataReader(object):
     """
     __DATASET_SPLIT_SUBFOLDER = "splits/"
     __DATASET_OFFLINE_SUBFOLDER = "raw-datasets/"
-    __DATASET_MAIN_ROOT_FOLDER = "RecSysFramework-data"
+    __DATASET_MAIN_ROOT_FOLDER = "datasets"
     DATASET_SPLIT_ROOT_FOLDER = None
     DATASET_OFFLINE_ROOT_FOLDER = None
-
-
 
     # This subfolder contains the preprocessed data, already loaded from the original data file
     DATASET_SUBFOLDER_ORIGINAL = "original/"
@@ -64,10 +62,10 @@ class DataReader(object):
 
         super(DataReader, self).__init__()
 
-        self.DATASET_SPLIT_ROOT_FOLDER = os.path.join(os.path.expanduser('~'),
+        self.DATASET_SPLIT_ROOT_FOLDER = os.path.join('./',
                                                       self.__DATASET_MAIN_ROOT_FOLDER,
                                                       self.__DATASET_SPLIT_SUBFOLDER)
-        self.DATASET_OFFLINE_ROOT_FOLDER = os.path.join(os.path.expanduser('~'),
+        self.DATASET_OFFLINE_ROOT_FOLDER = os.path.join('./',
                                                         self.__DATASET_MAIN_ROOT_FOLDER,
                                                         self.__DATASET_OFFLINE_SUBFOLDER)
 

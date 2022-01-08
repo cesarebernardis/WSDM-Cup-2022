@@ -351,7 +351,8 @@ def remove_useless_features(df, columns_to_remove=None, inplace=True):
 
 class FeatureGenerator:
 
-    def __init__(self, exam_folder, n_folds=0):
+    def __init__(self, exam_folder, n_folds=0, additional_negs=0):
+        self.additional_negs = additional_negs
         if n_folds is None:
             self.n_folds = EXPERIMENTAL_CONFIG['n_folds']
         else:
@@ -368,8 +369,9 @@ class FeatureGenerator:
         self.user_mappers = []
         self.item_mappers = []
         self.urms = []
+        exam_path = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
         for fold in range(self.n_folds):
-            validation_path = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + exam_folder + "-" + str(
+            validation_path = exam_path + exam_folder + "-" + str(
                 fold) + os.sep
             with open(validation_path + "URM_all_train_mapper", "rb") as file:
                 um, im = pkl.load(file)
@@ -379,11 +381,13 @@ class FeatureGenerator:
             self.urms.append(urm_train)
             self.exam_itempops.append(np.ediff1d(urm_train.tocsc().indptr))
             self.validations.append(sps.load_npz(validation_path + "URM_all_test.npz").tocoo())
-            self.validation_negs.append(load_compressed_csr_matrix(validation_path + "urm_neg.npz").tocoo())
+            self.validation_negs.append([load_compressed_csr_matrix(validation_path + "urm_neg.npz").tocoo()] +
+                [load_compressed_csr_matrix(validation_path + "urm_neg_{}.npz".format(i)).tocoo() for i in range(self.additional_negs)])
 
         self.user_mappers.append(exam_user_mapper)
         self.item_mappers.append(exam_item_mapper)
-        self.validation_negs.append(self.urm_exam_valid_neg.tocoo())
+        self.validation_negs.append([self.urm_exam_valid_neg.tocoo()] +
+            [load_compressed_csr_matrix(exam_path + "urm_valid_neg_{}.npz".format(i)).tocoo() for i in range(self.additional_negs)])
         self.validations.append(self.exam_valid.get_URM().tocoo())
         self.urms.append(self.exam_train.get_URM())
         self.exam_profile_lengths.append(np.ediff1d(self.urms[-1].indptr))
@@ -391,7 +395,7 @@ class FeatureGenerator:
 
         self.user_mappers.append(exam_user_mapper)
         self.item_mappers.append(exam_item_mapper)
-        self.validation_negs.append(self.urm_exam_test_neg.tocoo())
+        self.validation_negs.append([self.urm_exam_test_neg.tocoo()])
         valid_urm = self.exam_valid.get_URM()
         valid_urm.data[:] = max(self.urms[-1].data)
         self.urms.append(self.exam_train.get_URM() + valid_urm)
@@ -400,8 +404,7 @@ class FeatureGenerator:
 
         self.basic_dfs = []
         for fold in range(self.n_folds + 2):
-            self.basic_dfs.append(pd.DataFrame({'user': self.validation_negs[fold].row.copy(),
-                                                'item': self.validation_negs[fold].col.copy()}))
+            self.basic_dfs.append(self._initialize_dataframe(fold))
             fold_fpl = np.ediff1d(self.urms[fold].tocsr().indptr)
             fold_itempop = np.ediff1d(self.urms[fold].tocsc().indptr)
             pl_df = pd.DataFrame({'user': np.arange(len(fold_fpl)), 'pl': fold_fpl, 'pl_log': np.log(fold_fpl + 1)})
@@ -409,6 +412,13 @@ class FeatureGenerator:
                                    'popularity_log': np.log(fold_itempop + 1)})
             self.basic_dfs[fold] = self.basic_dfs[fold].merge(pop_df, on=["item"], how="left", sort=True)
             self.basic_dfs[fold] = self.basic_dfs[fold].merge(pl_df, on=["user"], how="left", sort=True)
+
+
+    def _initialize_dataframe(self, fold):
+        rows = np.concatenate([self.validation_negs[fold][i].row for i in range(len(self.validation_negs[fold]))])
+        cols = np.concatenate([self.validation_negs[fold][i].col for i in range(len(self.validation_negs[fold]))])
+        return pd.DataFrame({'user': rows, 'item': cols})
+
 
     def _get_mapper_converters(self, user_mapper, item_mapper):
 
@@ -449,13 +459,15 @@ class FeatureGenerator:
 
         fpl = np.ediff1d(folder_urm.tocsr().indptr)
         itempop = np.ediff1d(folder_urm.tocsc().indptr)
+        item_avg_rating = np.divide(folder_urm.sum(axis=0).flatten(), 1e-6 + itempop)
+        user_avg_rating = np.divide(folder_urm.sum(axis=1).flatten(), 1e-6 + fpl)
 
         test_fpl = np.ediff1d(folder_test_urm.tocsr().indptr)
         test_itempop = np.ediff1d(folder_test_urm.tocsc().indptr)
+        test_item_avg_rating = np.divide(folder_test_urm.sum(axis=0).flatten(), 1e-6 + test_itempop)
+        test_user_avg_rating = np.divide(folder_test_urm.sum(axis=1).flatten(), 1e-6 + test_fpl)
 
-        ratings = [pd.DataFrame({'user': self.validation_negs[fold].row.copy(),
-                                 'item': self.validation_negs[fold].col.copy()})
-                   for fold in range(len(self.validation_negs))]
+        ratings = [self._initialize_dataframe(fold) for fold in range(len(self.validation_negs))]
 
         user_converters, item_converters = self._get_mapper_converters(user_mapper, item_mapper)
 
@@ -482,16 +494,20 @@ class FeatureGenerator:
         for fold in range(self.n_folds + 2):
             if fold == self.n_folds + 1:
                 pl_df = pd.DataFrame({'user': np.arange(len(user_converters[fold])),
+                                      folder + '_uar': test_user_avg_rating[user_converters[fold]],
                                       folder + '_pl': test_fpl[user_converters[fold]],
                                       folder + '_pl_log': np.log(test_fpl + 1)[user_converters[fold]]})
                 pop_df = pd.DataFrame({'item': np.arange(len(item_converters[fold])),
+                                       folder + '_iar': test_item_avg_rating[item_converters[fold]],
                                        folder + '_popularity': test_itempop[item_converters[fold]],
                                        folder + '_popularity_log': np.log(test_itempop + 1)[item_converters[fold]]})
             else:
                 pl_df = pd.DataFrame({'user': np.arange(len(user_converters[fold])),
+                                      folder + '_uar': user_avg_rating[user_converters[fold]],
                                       folder + '_pl': fpl[user_converters[fold]],
                                       folder + '_pl_log': np.log(fpl + 1)[user_converters[fold]]})
                 pop_df = pd.DataFrame({'item': np.arange(len(item_converters[fold])),
+                                       folder + '_iar': item_avg_rating[item_converters[fold]],
                                        folder + '_popularity': itempop[item_converters[fold]],
                                        folder + '_popularity_log': np.log(itempop + 1)[item_converters[fold]]})
 
@@ -514,9 +530,7 @@ class FeatureGenerator:
 
     def load_algorithms_predictions(self, folder, only_best_baselines=False):
 
-        ratings = [pd.DataFrame({'user': self.validation_negs[fold].row.copy(),
-                                 'item': self.validation_negs[fold].col.copy()})
-                   for fold in range(len(self.validation_negs))]
+        ratings = [self._initialize_dataframe(fold) for fold in range(len(self.validation_negs))]
 
         if only_best_baselines:
             algorithms = EXPERIMENTAL_CONFIG['best-baselines']
@@ -530,33 +544,32 @@ class FeatureGenerator:
             print("Loading", folder, recname)
             for fold in range(self.n_folds):
                 validation_folder = self.exam_folder + "-" + str(fold)
-                try:
+                dfs = []
+                for i in range(-1, self.additional_negs):
+                    suffix = "" if i < 0 else "-{}".format(i)
                     r = row_minmax_scaling(
-                        read_ratings(output_folder_path + validation_folder + "_valid_scores.tsv",
+                        read_ratings(output_folder_path + validation_folder + "_valid_scores{}.tsv".format(suffix),
                                      self.user_mappers[fold], self.item_mappers[fold])).tocoo()
-                    local_df = pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data})
-                    ratings[fold] = ratings[fold].merge(local_df, on=["user", "item"], how="left", sort=True)
-                except Exception as e:
-                    is_complete = False
-                    continue
-            try:
+                    dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data}))
+                ratings[fold] = ratings[fold].merge(pd.concat(dfs), on=["user", "item"], how="left", sort=True)
+
+            dfs = []
+            for i in range(-1, self.additional_negs):
+                suffix = "" if i < 0 else "-{}".format(i)
                 r = row_minmax_scaling(
-                    read_ratings(output_folder_path + self.exam_folder + "_valid_scores.tsv",
+                    read_ratings(output_folder_path + self.exam_folder + "_valid_scores{}.tsv".format(suffix),
                                  self.user_mappers[-2], self.item_mappers[-2])).tocoo()
-                local_df = pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data})
-                ratings[-2] = ratings[-2].merge(local_df, on=["user", "item"], how="left", sort=True)
-            except Exception as e:
-                is_complete = False
-                continue
-            try:
+                dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data}))
+            ratings[-2] = ratings[-2].merge(pd.concat(dfs), on=["user", "item"], how="left", sort=True)
+
+            dfs = []
+            for i in range(-1, self.additional_negs):
+                suffix = "" if i < 0 else "-{}".format(i)
                 r = row_minmax_scaling(
-                    read_ratings(output_folder_path + self.exam_folder + "_test_scores.tsv",
+                    read_ratings(output_folder_path + self.exam_folder + "_test_scores{}.tsv".format(suffix),
                                  self.user_mappers[-1], self.item_mappers[-1])).tocoo()
-                local_df = pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data})
-                ratings[-1] = ratings[-1].merge(local_df, on=["user", "item"], how="left", sort=True)
-            except Exception as e:
-                is_complete = False
-                continue
+                dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data}))
+            ratings[-1] = ratings[-1].merge(pd.concat(dfs), on=["user", "item"], how="left", sort=True)
 
         return ratings
 
@@ -573,30 +586,41 @@ class FeatureGenerator:
         if os.path.isfile(results_filename + "-valid.tsv.gz") and os.path.isfile(results_filename + "-test.tsv.gz"):
 
             for fold in range(self.n_folds):
-                if os.path.isfile(results_filename + "-f{}.tsv.gz".format(fold)):
+                dfs = []
+                for i in range(-1, self.additional_negs):
+                    suffix = "" if i < 0 else "-{}".format(i)
                     r = row_minmax_scaling(
-                        read_ratings(results_filename + "-f{}.tsv.gz".format(fold),
+                        read_ratings(results_filename + "-f{}{}.tsv.gz".format(fold, suffix),
                                      self.user_mappers[fold], self.item_mappers[fold])).tocoo()
                     if break_ties:
-                        filler = row_minmax_scaling(read_ratings(break_ties_filename + "-f{}.tsv.gz".format(fold), self.user_mappers[fold], self.item_mappers[fold]))
+                        filler = row_minmax_scaling(read_ratings(break_ties_filename + "-f{}{}.tsv.gz".format(fold, suffix), self.user_mappers[fold], self.item_mappers[fold]))
                         r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
-                    ratings.append(pd.DataFrame({'user': r.row, 'item': r.col, feat_name: r.data}))
-                    self.basic_dfs[fold] = self.basic_dfs[fold].merge(ratings[-1], on=["user", "item"], how="left", sort=True)
+                    dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, feat_name: r.data}))
+                ratings.append(pd.concat(dfs))
+                self.basic_dfs[fold] = self.basic_dfs[fold].merge(ratings[-1], on=["user", "item"], how="left", sort=True)
 
-            r = row_minmax_scaling(
-                read_ratings(results_filename + "-valid.tsv.gz", self.user_mappers[-2], self.item_mappers[-2])).tocoo()
-            if break_ties:
-                filler = row_minmax_scaling(read_ratings(break_ties_filename + "-valid.tsv.gz", self.user_mappers[-2], self.item_mappers[-2]))
-                r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
-            ratings.append(pd.DataFrame({'user': r.row, 'item': r.col, feat_name: r.data}))
+            dfs = []
+            for i in range(-1, self.additional_negs):
+                suffix = "" if i < 0 else "-{}".format(i)
+                r = row_minmax_scaling(
+                    read_ratings(results_filename + "-valid{}.tsv.gz".format(suffix), self.user_mappers[-2], self.item_mappers[-2])).tocoo()
+                if break_ties:
+                    filler = row_minmax_scaling(read_ratings(break_ties_filename + "-valid{}.tsv.gz".format(suffix), self.user_mappers[-2], self.item_mappers[-2]))
+                    r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
+                dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, feat_name: r.data}))
+            ratings.append(pd.concat(dfs))
             self.basic_dfs[-2] = self.basic_dfs[-2].merge(ratings[-1], on=["user", "item"], how="left", sort=True)
 
-            r = row_minmax_scaling(
-                read_ratings(results_filename + "-test.tsv.gz", self.user_mappers[-1], self.item_mappers[-1])).tocoo()
-            if break_ties:
-                filler = row_minmax_scaling(read_ratings(break_ties_filename + "-test.tsv.gz", self.user_mappers[-1], self.item_mappers[-1]))
-                r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
-            ratings.append(pd.DataFrame({'user': r.row, 'item': r.col, feat_name: r.data}))
+            dfs = []
+            for i in range(-1, self.additional_negs):
+                suffix = "" if i < 0 else "-{}".format(i)
+                r = row_minmax_scaling(
+                    read_ratings(results_filename + "-test{}.tsv.gz".format(suffix), self.user_mappers[-1], self.item_mappers[-1])).tocoo()
+                if break_ties:
+                    filler = row_minmax_scaling(read_ratings(break_ties_filename + "-test{}.tsv.gz".format(suffix), self.user_mappers[-1], self.item_mappers[-1]))
+                    r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
+                dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, feat_name: r.data}))
+            ratings.append(pd.concat(dfs))
             self.basic_dfs[-1] = self.basic_dfs[-1].merge(ratings[-1], on=["user", "item"], how="left", sort=True)
 
         return ratings
@@ -609,6 +633,9 @@ class FeatureGenerator:
 
     def load_xgb_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
         return self._load_ensemble_feature(folder, "xgb", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
+
+    def load_pyltr_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
+        return self._load_ensemble_feature(folder, "pyltr", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
     def load_ratings_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
         # WARNING! ratings ensemble not available for local cv
@@ -682,7 +709,7 @@ class Optimizer:
         self.validations = validations
         self.n_folds = n_folds
         if fillers is None:
-            self.fillers = [None for _ in range(len(urms))]
+            self.fillers = [None for _ in range(len(validations))]
         else:
             self.fillers = []
             for filler in fillers:
@@ -699,6 +726,9 @@ class Optimizer:
         self.best_params = None
         self.random_trials_perc = random_trials_perc
 
+    def get_splits(self, ratings, validation, random_state=1007):
+        splitter = RandomizedGroupKFold(self.n_folds, random_state=random_state)
+        return [(tr_i, te_i) for tr_i, te_i in splitter.split(ratings, validation, ratings.user.values)]
 
     def get_params_from_trial(self, trial):
         pass
@@ -753,4 +783,50 @@ class Optimizer:
         study = self.optimize(study_name, storage, force=force, n_trials=n_trials)
         self.best_params = study.best_params
         return self.best_params
+
+
+
+from sklearn.model_selection import GroupKFold
+from sklearn.utils import check_array
+
+class RandomizedGroupKFold(GroupKFold):
+
+    """
+    The original GroupKFold does not assume balance in the sizes of the groups, so it does not shuffle
+    and it tries to balance the splits as much as possible.
+    In this case, groups are balanced, so no need to do it, instead I would like to shuffle.
+    """
+
+    def __init__(self, n_splits=5, shuffle=True, random_state=42):
+        super().__init__(n_splits)
+        self.shuffle = shuffle
+        self.random_state = random_state
+
+    def _iter_test_indices(self, X, y, groups):
+        if groups is None:
+            raise ValueError("The 'groups' parameter should not be None.")
+
+        groups = check_array(groups, ensure_2d=False, dtype=None)
+
+        unique_groups, groups = np.unique(groups, return_inverse=True)
+        n_groups = len(unique_groups)
+
+        if self.n_splits > n_groups:
+            raise ValueError(
+                "Cannot have number of splits n_splits=%d greater"
+                " than the number of groups: %d." % (self.n_splits, n_groups)
+            )
+
+        samples_per_fold = int(len(groups) / self.n_splits)
+        indices = np.repeat(np.arange(self.n_splits), samples_per_fold)
+        indices = np.concatenate([indices, np.arange(len(groups) - len(indices))])
+
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+
+        if self.shuffle:
+            np.random.shuffle(indices)
+
+        for f in range(self.n_splits):
+            yield np.where(indices == f)[0]
 

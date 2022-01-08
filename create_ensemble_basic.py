@@ -15,6 +15,7 @@ from utils import create_dataset_from_folder, compress_urm, read_ratings, output
 
 if __name__ == "__main__":
 
+    output_sub = True
     max_cutoff = max(EXPERIMENTAL_CONFIG['cutoffs'])
     cold_user_threshold = EXPERIMENTAL_CONFIG['cold_user_threshold']
     quite_cold_user_threshold = EXPERIMENTAL_CONFIG['quite_cold_user_threshold']
@@ -62,9 +63,9 @@ if __name__ == "__main__":
             for usertype in ["cold", "quite-cold", "quite-warm", "warm"]:
                 mask =  user_masks[usertype]
                 algo_weights[mask] = ensemble_weights[usertype][folder] * ensemble_weights[usertype][folder + "-sign"]
-                exponent = ensemble_weights[usertype][folder + "-pldiff-exp"] * \
-                           ensemble_weights[usertype][folder + "-pldiff-exp-sign"]
-                algo_weights[mask] = np.multiply(algo_weights[mask], np.power(profile_lengths_diff[mask] + 1., exponent))
+                #exponent = ensemble_weights[usertype][folder + "-pldiff-exp"] * \
+                #           ensemble_weights[usertype][folder + "-pldiff-exp-sign"]
+                #algo_weights[mask] = np.multiply(algo_weights[mask], np.power(profile_lengths_diff[mask] + 1., exponent))
 
             weights = sps.diags(algo_weights, dtype=np.float32)
             urm_valid_total = weights.dot(row_minmax_scaling(urm_valid_total))
@@ -95,10 +96,15 @@ if __name__ == "__main__":
         print(outstr)
 
         basepath = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
-        output_scores(basepath + "valid_scores.tsv", urm_exam_valid_total, exam_user_mapper, exam_item_mapper, compress=False, user_prefix=exam_folder)
-        output_scores(basepath + "test_scores.tsv", urm_exam_test_total, exam_user_mapper, exam_item_mapper, compress=False, user_prefix=exam_folder)
+        output_scores(basepath + "valid_scores_ratings.tsv.gz", urm_exam_valid_total, exam_user_mapper, exam_item_mapper, compress=False)
+        output_scores(basepath + "test_scores_ratings.tsv.gz", urm_exam_test_total, exam_user_mapper, exam_item_mapper, compress=False)
+
+        if output_sub:
+            output_scores(basepath + "valid_scores.tsv", urm_exam_valid_total, exam_user_mapper, exam_item_mapper, compress=False)
+            output_scores(basepath + "test_scores.tsv", urm_exam_test_total, exam_user_mapper, exam_item_mapper, compress=False)
 
         print("----------------------------------")
 
-    make_submission()
+    if output_sub:
+        make_submission()
 

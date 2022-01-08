@@ -38,15 +38,30 @@ class LightGBMOptimizer(Optimizer):
     def evaluate(self, predictions_matrix, val, cutoff=10):
         return evaluate(predictions_matrix, val, cutoff=cutoff)
 
-    def train_cv(self, _params, _urm, _ratings, _validation, test_df=None):
+    def train_cv(self, _params, _urm, _ratings, _validation, test_df=None, filler=None):
 
+        _params["metric"] = None
+        #_params["n_jobs"] = 4
         model = lgbm.LGBMRanker(**_params)
         splitter = GroupKFold(self.n_folds)
         _ratings = _ratings.sort_values(by=['user'])
 
         validation_df = pd.DataFrame({'user': _ratings.user.copy(), 'item': _ratings.item.copy()})
-        validation_true = pd.DataFrame({'user': _validation.row, 'item': _validation.col, 'relevance': 1})
-        validation_df = validation_df.merge(validation_true, on=["user", "item"], how="left", sort=True).fillna(0)
+        validation_true = pd.DataFrame({'user': _validation.row, 'item': _validation.col, 'relevance': 1 if filler is None else 10})
+        validation_df = validation_df.merge(validation_true, on=["user", "item"], how="left", sort=True)
+
+        train_validation_df = validation_df.copy()
+        validation_df.fillna(0, inplace=True)
+
+        if filler is None:
+            train_validation_df.fillna(0, inplace=True)
+        else:
+            filler = row_minmax_scaling(filler).tocoo()
+            validation_filler = pd.DataFrame({'user': filler.row, 'item': filler.col, 'filler': (filler.data * 10).astype(np.int32)})
+            train_validation_df = train_validation_df.merge(validation_filler, on=["user", "item"], how="left", sort=True)
+            train_validation_df.filler.fillna(0., inplace=True)
+            train_validation_df.relevance.fillna(train_validation_df.filler, inplace=True)
+            train_validation_df.drop(['filler'], axis=1, inplace=True)
 
         _r = sps.csr_matrix(([], ([], [])), shape=_validation.shape)
         test_r = sps.csr_matrix(([], ([], [])), shape=_validation.shape)
@@ -65,12 +80,13 @@ class LightGBMOptimizer(Optimizer):
             test_groups = counts[np.argsort(users)]
 
             train_df = _ratings.drop(['user', 'item'], axis=1)
-            pred_df = validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
+            train_pred_df = train_validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
+            val_pred_df = validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
             model.fit(
-                train_df.iloc[train_index], pred_df.iloc[train_index], group=train_groups,
-                eval_set=[(train_df.iloc[test_index], pred_df.iloc[test_index])],
-                eval_group=[test_groups], eval_at=(10), eval_metric="ndcg",
-                callbacks=[lgbm.early_stopping(20, first_metric_only=False, verbose=False), lgbm.log_evaluation(0)]
+                train_df.iloc[train_index], train_pred_df.iloc[train_index], group=train_groups,
+                eval_set=[(train_df.iloc[test_index], val_pred_df.iloc[test_index])],
+                eval_group=[test_groups], eval_at=(1, 10), eval_metric="ndcg@10",
+                callbacks=[lgbm.early_stopping(10, verbose=False), lgbm.log_evaluation(0)]
             )
             predictions = model.predict(train_df.iloc[test_index], raw_score=True) + 1e-10
             predictions_matrix = sps.csr_matrix((predictions, (_ratings.user.values[test_index],
@@ -97,36 +113,49 @@ class LightGBMOptimizer(Optimizer):
 
     def get_params_from_trial(self, trial):
 
-        subsample_freq = trial.suggest_int("subsample_freq", 0, 10)
-        if subsample_freq > 0:
-            subsample = trial.suggest_float("subsample", 1e-3, 0.9, log=True)
-        else:
-            subsample = 1.
+        boosting_type = trial.suggest_categorical("boosting_type", ["gbdt", "dart", "goss"])
 
-        return {
-            "boosting_type": trial.suggest_categorical("boosting_type", ["gbdt", "dart"]),
-            "num_leaves": trial.suggest_int("num_leaves", 8, 150),
-            "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.5, log=True),
-            "n_estimators": trial.suggest_int("n_estimators", 40, 500),
-            "subsample_for_bin": trial.suggest_int("subsample_for_bin", 100, 100000),
-            "objective": trial.suggest_categorical("objective", ["lambdarank"]),
-            "min_split_gain": trial.suggest_float("min_split_gain", 1e-9, 1e-2, log=True),
-            "min_child_weight": trial.suggest_float("min_child_weight", 1e-4, 10., log=True),
-            "min_child_samples": trial.suggest_int("min_child_samples", 8, 50),
-            "subsample": subsample,
-            "subsample_freq": subsample_freq,
+        # https://github.com/Microsoft/LightGBM/issues/695#issuecomment-315591634
+        params = {
+            "boosting_type": boosting_type,
+            "learning_rate": trial.suggest_float("learning_rate", 1e-2, 0.4, log=True),
+            "n_estimators": trial.suggest_categorical("n_estimators", [500]),
+            "max_depth": trial.suggest_int("max_depth", 3, 31),
+            "num_leaves": trial.suggest_int("num_leaves", 7, 200),
+            "subsample_for_bin": trial.suggest_int("subsample_for_bin", 1000, 1000000),
+            "objective": trial.suggest_categorical("objective", ["lambdarank", "rank_xendcg"]),
+            "min_split_gain": trial.suggest_float("min_split_gain", 1e-8, 1e-2, log=True),
+            "min_child_weight": trial.suggest_float("min_child_weight", 1e-5, 0.1, log=True),
+            "min_child_samples": trial.suggest_int("min_child_samples", 8, 100),
             "random_state": trial.suggest_categorical("random_state", [1]),
             "colsample_bytree": trial.suggest_float("colsample_bytree", 1e-2, 1., log=True),
             "reg_alpha": trial.suggest_float("reg_alpha", 1e-7, 0.1, log=True),
             "reg_lambda": trial.suggest_float("reg_lambda", 1e-7, 0.1, log=True),
         }
 
+        if boosting_type != "goss":
+            params["subsample_freq"] = trial.suggest_int("subsample_freq", 0, 5)
+            if params["subsample_freq"] > 0:
+                params["subsample"] = trial.suggest_float("subsample", 1e-2, 1., log=True)
+            else:
+                params["subsample"] = 1.
+
+        if boosting_type == "dart":
+            params["drop_rate"] = trial.suggest_float("drop_rate", 1e-2, 0.5, log=True)
+            params["skip_drop"] = trial.suggest_float("skip_drop", 0.2, 0.8)
+            params["max_drop"] = trial.suggest_int("max_drop", 5, 100, log=True)
+        elif boosting_type == "goss":
+            params["top_rate"] = trial.suggest_float("top_rate", 0.1, 0.3)
+            params["other_rate"] = trial.suggest_float("other_rate", 0.02, 0.2)
+
+        return params
+
 
 
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='LightGBM final ensemble hyperparameter optimization')
+    parser = argparse.ArgumentParser(description='LightGBM ensemble hyperparameter optimization')
     parser.add_argument('--ntrials', '-t', metavar='TRIALS', type=int, nargs='?', default=250,
                         help='Number of trials for hyperparameter optimization')
     parser.add_argument('--nfolds', '-cv', metavar='FOLDS', type=int, nargs='?', default=5,
@@ -162,14 +191,14 @@ if __name__ == "__main__":
                 for j in range(len(predictions)):
                     ratings[j] = ratings[j].merge(predictions[j], on=["user" ,"item"], how="left", sort=True)
 
+                useless_cols = get_useless_columns(ratings[-2])
+                for i in range(len(ratings)):
+                    remove_useless_features(ratings[i], columns_to_remove=useless_cols, inplace=True)
+
                 user_factors, item_factors = featgen.load_user_factors(folder, num_factors=12, normalize=True)
                 for j in range(len(user_factors)):
                     ratings[j] = ratings[j].merge(item_factors[j], on=["item"], how="left", sort=False)
                     ratings[j] = ratings[j].merge(user_factors[j], on=["user"], how="left", sort=True)
-
-                useless_cols = get_useless_columns(ratings[-2])
-                for i in range(len(ratings)):
-                    remove_useless_features(ratings[i], columns_to_remove=useless_cols, inplace=True)
 
                 optimizer = LightGBMOptimizer(urms, ratings, validations, n_folds=n_folds)
                 optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=folder, study_name_suffix="-f")

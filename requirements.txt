@@ -12,3 +12,5 @@ optuna
 catboost
 lightgbm
 xgboost
+pyarrow
+lightfm
