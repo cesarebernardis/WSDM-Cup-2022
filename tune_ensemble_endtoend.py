@@ -21,9 +21,9 @@ from RecSysFramework.Evaluation.Metrics import ndcg
 from RecSysFramework.ExperimentalConfig import EXPERIMENTAL_CONFIG
 from RecSysFramework.Utils import load_compressed_csr_matrix, save_compressed_csr_matrix
 
-from tune_ensemble_lightgbm import LightGBMOptimizer, LightGBMSmallOptimizer
-from tune_ensemble_xgboost import XGBoostOptimizer, XGBoostSmallOptimizer
-from tune_ensemble_catboost import CatboostOptimizer, CatboostSmallOptimizer
+from lightgbm_utils import LightGBMOptimizer, LightGBMSmallOptimizer
+from xgboost_utils import XGBoostOptimizer, XGBoostSmallOptimizer
+from catboost_utils import CatboostOptimizer, CatboostSmallOptimizer
 from utils import FeatureGenerator, remove_seen, remove_useless_features, get_useless_columns, break_ties_with_filler
 from utils import create_dataset_from_folder, compress_urm, read_ratings, output_scores, row_minmax_scaling, evaluate, first_level_ensemble, stretch_urm, make_submission
 

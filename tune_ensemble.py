@@ -71,7 +71,7 @@ def objective(trial, _ratings, _user_masks, _validations, _profile_lengths_diff=
 
 def optimize(study_name, storage, ratings, user_masks, validations, usertype, force=False, n_trials=500, profile_lengths_diff=None):
     print("Starting {} optimization".format(usertype))
-    sampler = optuna.samplers.TPESampler(n_startup_trials=70)
+    sampler = optuna.samplers.TPESampler(n_startup_trials=100)
     if force:
         try:
             optuna.study.delete_study(study_name, storage)
@@ -225,13 +225,10 @@ if __name__ == "__main__":
                 results_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \
                                    "ratings-ensemble-prediction-{}".format(exam_folder)
 
-                output_scores(results_filename + "-valid.tsv.gz", er.tocsr(), exam_user_mapper, exam_item_mapper,
-                              user_prefix=exam_folder, compress=True)
-                output_scores(results_filename + "-test.tsv.gz", er_test.tocsr(), exam_user_mapper, exam_item_mapper,
-                              user_prefix=exam_folder, compress=True)
+                output_scores(results_filename + "-valid.tsv.gz", er.tocsr(), exam_user_mapper, exam_item_mapper, compress=True)
+                output_scores(results_filename + "-test.tsv.gz", er_test.tocsr(), exam_user_mapper, exam_item_mapper, compress=True)
                 print(exam_folder, folder, "Ratings optimization finished:", result)
 
-        continue
         weights_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep + "best-last-level-ensemble-weights.pkl"
         if os.path.isfile(weights_filename):
             with open(weights_filename, "rb") as file:
@@ -243,7 +240,7 @@ if __name__ == "__main__":
             run_last_level_opt = True
 
         result_dict = optimize_all(exam_folder, [ensemble_ratings], user_masks, validations, force=run_last_level_opt,
-                                   n_trials=n_trials, folder=None, profile_lengths_diff=profile_lengths_diff)
+                                   n_trials=n_trials, folder=None)
 
         with open(weights_filename, "wb") as file:
             pkl.dump(result_dict, file)
