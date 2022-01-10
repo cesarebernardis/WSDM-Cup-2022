@@ -14,3 +14,4 @@ lightgbm
 xgboost
 pyarrow
 lightfm
+eli5

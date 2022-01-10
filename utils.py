@@ -528,7 +528,7 @@ class FeatureGenerator:
         return ratings
 
 
-    def load_algorithms_predictions(self, folder, only_best_baselines=False):
+    def load_algorithms_predictions(self, folder, normalize=True, only_best_baselines=False):
 
         ratings = [self._initialize_dataframe(fold) for fold in range(len(self.validation_negs))]
 
@@ -547,34 +547,40 @@ class FeatureGenerator:
                 dfs = []
                 for i in range(-1, self.additional_negs):
                     suffix = "" if i < 0 else "-{}".format(i)
-                    r = row_minmax_scaling(
-                        read_ratings(output_folder_path + validation_folder + "_valid_scores{}.tsv".format(suffix),
-                                     self.user_mappers[fold], self.item_mappers[fold])).tocoo()
+                    r = read_ratings(output_folder_path + validation_folder + "_valid_scores{}.tsv".format(suffix),
+                                     self.user_mappers[fold], self.item_mappers[fold])
+                    if normalize:
+                        r = row_minmax_scaling(r)
+                    r = r.tocoo()
                     dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data}))
                 ratings[fold] = ratings[fold].merge(pd.concat(dfs), on=["user", "item"], how="left", sort=True)
 
             dfs = []
             for i in range(-1, self.additional_negs):
                 suffix = "" if i < 0 else "-{}".format(i)
-                r = row_minmax_scaling(
-                    read_ratings(output_folder_path + self.exam_folder + "_valid_scores{}.tsv".format(suffix),
-                                 self.user_mappers[-2], self.item_mappers[-2])).tocoo()
+                r = read_ratings(output_folder_path + self.exam_folder + "_valid_scores{}.tsv".format(suffix),
+                                 self.user_mappers[-2], self.item_mappers[-2])
+                if normalize:
+                    r = row_minmax_scaling(r)
+                r = r.tocoo()
                 dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data}))
             ratings[-2] = ratings[-2].merge(pd.concat(dfs), on=["user", "item"], how="left", sort=True)
 
             dfs = []
             for i in range(-1, self.additional_negs):
                 suffix = "" if i < 0 else "-{}".format(i)
-                r = row_minmax_scaling(
-                    read_ratings(output_folder_path + self.exam_folder + "_test_scores{}.tsv".format(suffix),
-                                 self.user_mappers[-1], self.item_mappers[-1])).tocoo()
+                r = read_ratings(output_folder_path + self.exam_folder + "_test_scores{}.tsv".format(suffix),
+                                 self.user_mappers[-1], self.item_mappers[-1])
+                if normalize:
+                    r = row_minmax_scaling(r)
+                r = r.tocoo()
                 dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data}))
             ratings[-1] = ratings[-1].merge(pd.concat(dfs), on=["user", "item"], how="left", sort=True)
 
         return ratings
 
 
-    def _load_ensemble_feature(self, folder, algo, break_ties=False, break_ties_penalization=1e-2):
+    def _load_ensemble_feature(self, folder, algo, normalize=True, break_ties=False, break_ties_penalization=1e-2):
 
         results_basepath = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep
 
@@ -589,9 +595,11 @@ class FeatureGenerator:
                 dfs = []
                 for i in range(-1, self.additional_negs):
                     suffix = "" if i < 0 else "-{}".format(i)
-                    r = row_minmax_scaling(
-                        read_ratings(results_filename + "-f{}{}.tsv.gz".format(fold, suffix),
-                                     self.user_mappers[fold], self.item_mappers[fold])).tocoo()
+                    r = read_ratings(results_filename + "-f{}{}.tsv.gz".format(fold, suffix),
+                                     self.user_mappers[fold], self.item_mappers[fold])
+                    if normalize:
+                        r = row_minmax_scaling(r)
+                    r = r.tocoo()
                     if break_ties:
                         filler = row_minmax_scaling(read_ratings(break_ties_filename + "-f{}{}.tsv.gz".format(fold, suffix), self.user_mappers[fold], self.item_mappers[fold]))
                         r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
@@ -602,8 +610,10 @@ class FeatureGenerator:
             dfs = []
             for i in range(-1, self.additional_negs):
                 suffix = "" if i < 0 else "-{}".format(i)
-                r = row_minmax_scaling(
-                    read_ratings(results_filename + "-valid{}.tsv.gz".format(suffix), self.user_mappers[-2], self.item_mappers[-2])).tocoo()
+                r = read_ratings(results_filename + "-valid{}.tsv.gz".format(suffix), self.user_mappers[-2], self.item_mappers[-2])
+                if normalize:
+                    r = row_minmax_scaling(r)
+                r = r.tocoo()
                 if break_ties:
                     filler = row_minmax_scaling(read_ratings(break_ties_filename + "-valid{}.tsv.gz".format(suffix), self.user_mappers[-2], self.item_mappers[-2]))
                     r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
@@ -614,8 +624,10 @@ class FeatureGenerator:
             dfs = []
             for i in range(-1, self.additional_negs):
                 suffix = "" if i < 0 else "-{}".format(i)
-                r = row_minmax_scaling(
-                    read_ratings(results_filename + "-test{}.tsv.gz".format(suffix), self.user_mappers[-1], self.item_mappers[-1])).tocoo()
+                r = read_ratings(results_filename + "-test{}.tsv.gz".format(suffix), self.user_mappers[-1], self.item_mappers[-1])
+                if normalize:
+                    r = row_minmax_scaling(r)
+                r = r.tocoo()
                 if break_ties:
                     filler = row_minmax_scaling(read_ratings(break_ties_filename + "-test{}.tsv.gz".format(suffix), self.user_mappers[-1], self.item_mappers[-1]))
                     r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
@@ -625,21 +637,21 @@ class FeatureGenerator:
 
         return ratings
 
-    def load_lgbm_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
-        return self._load_ensemble_feature(folder, "lgbm", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
+    def load_lgbm_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-2):
+        return self._load_ensemble_feature(folder, "lgbm", normalize=normalize, break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
-    def load_catboost_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
-        return self._load_ensemble_feature(folder, "catboost", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
+    def load_catboost_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-2):
+        return self._load_ensemble_feature(folder, "catboost", normalize=normalize, break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
-    def load_xgb_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
-        return self._load_ensemble_feature(folder, "xgb", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
+    def load_xgb_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-2):
+        return self._load_ensemble_feature(folder, "xgb", normalize=normalize, break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
-    def load_pyltr_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
-        return self._load_ensemble_feature(folder, "pyltr", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
+    def load_pyltr_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-2):
+        return self._load_ensemble_feature(folder, "pyltr", normalize=normalize, break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
-    def load_ratings_ensemble_feature(self, folder, break_ties=False, break_ties_penalization=1e-2):
+    def load_ratings_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-2):
         # WARNING! ratings ensemble not available for local cv
-        return self._load_ensemble_feature(folder, "ratings", break_ties=break_ties, break_ties_penalization=break_ties_penalization)
+        return self._load_ensemble_feature(folder, "ratings", normalize=normalize, break_ties=break_ties, break_ties_penalization=break_ties_penalization)
 
     def add_features(self, df, fold, on=["user", "item"], left_suffix="", right_suffix=""):
         self.basic_dfs[fold] = self.basic_dfs[fold].merge(
@@ -667,13 +679,19 @@ class FeatureGenerator:
                 user_factors = recommender.USER_factors.astype(np.float32)[user_converters[fold]]
                 item_factors = recommender.ITEM_factors.astype(np.float32)[item_converters[fold]]
                 if normalize:
+                    user_factors_norms = np.linalg.norm(user_factors, axis=1)
+                    item_factors_norms = np.linalg.norm(item_factors, axis=1)
                     user_factors = sklearn.preprocessing.normalize(user_factors, axis=1, norm="l2", copy=False)
                     item_factors = sklearn.preprocessing.normalize(item_factors, axis=1, norm="l2", copy=False)
                 uf_df = pd.DataFrame(user_factors, columns=["{}_uf_{}".format(folder, i) for i in range(num_factors)])
                 uf_df["user"] = np.arange(len(uf_df))
+                if normalize:
+                    uf_df["{}_uf_norm".format(folder)] = user_factors_norms
                 user_features.append(uf_df)
                 uf_df = pd.DataFrame(item_factors, columns=["{}_if_{}".format(folder, i) for i in range(num_factors)])
                 uf_df["item"] = np.arange(len(uf_df))
+                if normalize:
+                    uf_df["{}_if_norm".format(folder)] = item_factors_norms
                 item_features.append(uf_df)
 
         return user_features, item_features
@@ -817,9 +835,9 @@ class RandomizedGroupKFold(GroupKFold):
                 " than the number of groups: %d." % (self.n_splits, n_groups)
             )
 
-        samples_per_fold = int(len(groups) / self.n_splits)
+        samples_per_fold = int(len(unique_groups) / self.n_splits)
         indices = np.repeat(np.arange(self.n_splits), samples_per_fold)
-        indices = np.concatenate([indices, np.arange(len(groups) - len(indices))])
+        indices = np.concatenate([indices, np.arange(len(unique_groups) - len(indices))])
 
         if self.random_state is not None:
             np.random.seed(self.random_state)
@@ -828,5 +846,5 @@ class RandomizedGroupKFold(GroupKFold):
             np.random.shuffle(indices)
 
         for f in range(self.n_splits):
-            yield np.where(indices == f)[0]
+            yield np.asarray(np.isin(unique_groups[groups], unique_groups[indices == f])).nonzero()[0]
 

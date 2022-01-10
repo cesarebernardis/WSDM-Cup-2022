@@ -1,14 +1,36 @@
 import os
 import optuna
 import argparse
-import lightgbm as lgbm
 
 import numpy as np
 import pandas as pd
 import scipy.sparse as sps
 import pickle as pkl
+import tempfile
 
-from sklearn.model_selection import GroupKFold
+from sklearn.datasets import dump_svmlight_file
+
+from urllib.parse import urlparse
+
+import allrank.models.losses as losses
+import torch
+from allrank.config import Config
+from allrank.data.dataset_loading import load_libsvm_dataset, create_data_loaders
+from allrank.models.model import make_model
+from allrank.models.model_utils import get_torch_device, CustomDataParallel
+from allrank_utils import fit, predict
+from allrank.utils.command_executor import execute_command
+from allrank.utils.experiments import dump_experiment_result, assert_expected_metrics
+from allrank.utils.file_utils import create_output_dirs, PathsContainer, copy_local_to_gs
+from allrank.utils.ltr_logging import init_logger
+from allrank.utils.python_utils import dummy_context_mgr
+from argparse import ArgumentParser, Namespace
+from attr import asdict
+from functools import partial
+from pprint import pformat
+from torch import optim
+
+from utils import RandomizedGroupKFold
 
 from RecSysFramework.DataManager import Dataset
 from RecSysFramework.Recommender.DataIO import DataIO
@@ -31,19 +53,81 @@ def print_importance(model, n=10):
         print(names[i], importances[i])
 
 
-class LightGBMOptimizer(Optimizer):
+class dotdict(dict):
+    """dot.notation access to dictionary attributes"""
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
 
-    NAME = "lgbm"
 
-    def evaluate(self, predictions_matrix, val, cutoff=10):
-        return evaluate(predictions_matrix, val, cutoff=cutoff)
+def weight_reset(m):
+    reset_parameters = getattr(m, "reset_parameters", None)
+    if callable(reset_parameters):
+        m.reset_parameters()
+
+
+class AllRankOptimizer(Optimizer):
+
+    NAME = "allrank"
+
+    def __init__(self, urms, ratings, validations, fillers=None, n_folds=5, random_trials_perc=0.25, with_transformer=True):
+        super(AllRankOptimizer, self).__init__(urms, ratings, validations, fillers=fillers, n_folds=n_folds, random_trials_perc=random_trials_perc)
+        self.with_transformer = with_transformer
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.input_path = self.tempdir + os.sep
 
     def train_cv(self, _params, _urm, _ratings, _validation, test_df=None, filler=None):
 
-        _params["metric"] = None
-        #_params["n_jobs"] = 4
-        model = lgbm.LGBMRanker(**_params)
-        splitter = GroupKFold(self.n_folds)
+        config = {}
+        config["training"] = {
+            "epochs": 200,
+            "early_stopping_patience": 5,
+            "gradient_clipping_norm": null
+        }
+        config["val_metric"] = "ndcg_10"
+        config["metrics"] = ["ndcg_5", "ndcg_10", "ndcg_30"]
+        config["detect_anomaly"] = False,
+        config["expected_metrics"] = { "val": { "ndcg_10": 0.5 } }
+
+        fc_model_sizes = []
+        for k in sorted(_params.keys()):
+            if "fc_model_sizes" in k:
+                fc_model_sizes.append(_params[k])
+
+        config["model"] = {
+            "fc_model": {
+                "sizes": fc_model_sizes,
+                "input_norm": _params["input_norm"],
+                "activation": _params["activation"],
+                "dropout": _params["dropout"],
+            },
+            "post_model": {
+                "output_activation": _params["post_activation"],
+                "d_output": 100
+            }
+        }
+        if self.with_transformer:
+            config["model"]["transformer"] = {
+                "N": _params["transformer_N"],
+                "d_ff": _params["transformer_dff"],
+                "h": _params["transformer_heads"],
+                "positional_encoding": None,
+                "dropout": _params["transformer_dropout"],
+            }
+
+        config["optimizer"] = {
+            "name": "Adam",
+            "args": {"lr": trial.suggest_float("learning_rate", 1e-4, 1e-2, log=True)}
+        }
+        config["lr_scheduler"] = {"name": "StepLR", "args": {"step_size": 50, "gamma": 0.1}}
+        config["loss"] = {
+            "name": _params["loss"],
+            "args": dict((k[10:], _params[k]) for k in _params.keys() if k.beginswith("loss_args"))
+        }
+
+        config = dotdict(config)
+
+        splitter = RandomizedGroupKFold(self.n_folds, random_state=42)
         _ratings = _ratings.sort_values(by=['user'])
 
         validation_df = pd.DataFrame({'user': _ratings.user.copy(), 'item': _ratings.item.copy()})
@@ -66,42 +150,110 @@ class LightGBMOptimizer(Optimizer):
         _r = sps.csr_matrix(([], ([], [])), shape=_validation.shape)
         test_r = sps.csr_matrix(([], ([], [])), shape=_validation.shape)
 
-        np.random.seed(13)
-        for train_index, test_index in splitter.split(_ratings, validation_df, _ratings.user.values):
+        torch.manual_seed(42)
+        torch.cuda.manual_seed_all(42)
+        np.random.seed(42)
 
-            # Ensure to keep order
-            train_index = np.sort(train_index)
-            test_index = np.sort(test_index)
+        if test_df is not None:
+            if not os.path.isfile(self.input_path + str(i) + os.sep + "test.txt"):
+                dump_svmlight_file(test_df.drop(['user', 'item'], axis=1), np.zeros(len(test_df), dtype=np.float32),
+                                   self.input_path + str(i) + os.sep + "test.txt", query_id=test_df.user)
 
-            users, counts = np.unique(_ratings.user.values[train_index], return_counts=True)
-            train_groups = counts[np.argsort(users)]
+        for i, (train_index, test_index) in enumerate(splitter.split(_ratings, validation_df, _ratings.user.values)):
 
-            users, counts = np.unique(_ratings.user.values[test_index], return_counts=True)
-            test_groups = counts[np.argsort(users)]
+            if not (os.path.isfile(self.input_path + str(i) + os.sep + "valid.txt") and \
+                    os.path.isfile(self.input_path + str(i) + os.sep + "train.txt")):
 
-            train_df = _ratings.drop(['user', 'item'], axis=1)
-            train_pred_df = train_validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
-            val_pred_df = validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
-            model.fit(
-                train_df.iloc[train_index], train_pred_df.iloc[train_index], group=train_groups,
-                eval_set=[(train_df.iloc[test_index], val_pred_df.iloc[test_index])],
-                eval_group=[test_groups], eval_at=(1, 10), eval_metric="ndcg@10",
-                callbacks=[lgbm.early_stopping(10, verbose=False), lgbm.log_evaluation(0)]
+                # Ensure to keep order
+                train_index = np.sort(train_index)
+                test_index = np.sort(test_index)
+
+                users, counts = np.unique(_ratings.user.values[train_index], return_counts=True)
+                train_groups = counts[np.argsort(users)]
+
+                users, counts = np.unique(_ratings.user.values[test_index], return_counts=True)
+                test_groups = counts[np.argsort(users)]
+
+                train_df = _ratings.drop(['user', 'item'], axis=1)
+                train_pred_df = train_validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
+                val_pred_df = validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
+
+                dump_svmlight_file(train_df.iloc[train_index], train_pred_df.iloc[train_index],
+                                   self.input_path + str(i) + os.sep + "train.txt",
+                                   query_id=_ratings.user[train_index])
+
+                dump_svmlight_file(train_df.iloc[test_index], val_pred_df.iloc[test_index],
+                                   self.input_path + str(i) + os.sep + "valid.txt",
+                                   query_id=_ratings.user[test_index])
+
+            # train_ds, val_ds
+            train_ds, val_ds = load_libsvm_dataset(
+                input_path=self.input_path + str(i),
+                slate_length=100,
+                validation_ds_role="vali",
             )
-            predictions = model.predict(train_df.iloc[test_index], raw_score=True) + 1e-10
+
+            n_features = train_ds.shape[-1]
+            assert n_features == val_ds.shape[-1], "Last dimensions of train_ds and val_ds do not match!"
+
+            # train_dl, val_dl
+            train_dl, val_dl = create_data_loaders(
+                train_ds, val_ds, num_workers=2, batch_size=_params["batch_size"])
+
+            # gpu support
+            dev = get_torch_device()
+            logger.info("Model training will execute on {}".format(dev.type))
+
+            # instantiate model
+            model = make_model(n_features=n_features, **asdict(config.model, recurse=False))
+            if torch.cuda.device_count() > 1:
+                model = CustomDataParallel(model)
+                logger.info("Model training will be distributed to {} GPUs.".format(torch.cuda.device_count()))
+            model.to(dev)
+
+            # load optimizer, loss and LR scheduler
+            optimizer = getattr(optim, config.optimizer.name)(params=model.parameters(), **config.optimizer.args)
+            loss_func = partial(getattr(losses, config.loss.name), **config.loss.args)
+            if config.lr_scheduler.name:
+                scheduler = getattr(optim.lr_scheduler, config.lr_scheduler.name)(optimizer, **config.lr_scheduler.args)
+            else:
+                scheduler = None
+
+            with torch.autograd.detect_anomaly() if config.detect_anomaly else dummy_context_mgr():  # type: ignore
+                # run training
+                result = fit(
+                    model=model,
+                    loss_func=loss_func,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    train_dl=train_dl,
+                    valid_dl=val_dl,
+                    config=config,
+                    device=dev,
+                    **asdict(config.training)
+                )
+
+            predictions = predict(val_ds, model) + 1e-10
             predictions_matrix = sps.csr_matrix((predictions, (_ratings.user.values[test_index],
                                                                _ratings.item.values[test_index])),
                                     shape=_validation.shape)
             _r += remove_seen(predictions_matrix, _urm)
 
             if test_df is not None:
-                predictions = model.predict(test_df.drop(['user', 'item'], axis=1), raw_score=True) + 1e-10
+                _, test_ds = load_libsvm_dataset(
+                    input_path=self.input_path + str(i),
+                    slate_length=100,
+                    validation_ds_role="test",
+                )
+                predictions = predict(test_ds, model) + 1e-10
                 predictions_matrix = sps.csr_matrix((predictions, (test_df.user.values, test_df.item.values)),
                                                     shape=_validation.shape)
                 predictions_matrix = remove_seen(predictions_matrix, _urm + _validation)
                 test_r += predictions_matrix / splitter.get_n_splits()
 
-        user_ndcg, n_evals = self.evaluate(_r, _validation, cutoff=10)
+            model.apply(weight_reset)
+
+        user_ndcg, n_evals = evaluate(_r, _validation, cutoff=10)
         _r = row_minmax_scaling(_r).tocoo()
         part_score = np.sum(user_ndcg) / n_evals
 
@@ -113,40 +265,23 @@ class LightGBMOptimizer(Optimizer):
 
     def get_params_from_trial(self, trial):
 
-        boosting_type = trial.suggest_categorical("boosting_type", ["gbdt", "dart", "goss"])
-
-        # https://github.com/Microsoft/LightGBM/issues/695#issuecomment-315591634
         params = {
-            "boosting_type": boosting_type,
-            "learning_rate": trial.suggest_float("learning_rate", 1e-2, 0.4, log=True),
-            "n_estimators": trial.suggest_categorical("n_estimators", [500]),
-            "max_depth": trial.suggest_int("max_depth", 3, 31),
-            "num_leaves": trial.suggest_int("num_leaves", 7, 200),
-            "subsample_for_bin": trial.suggest_int("subsample_for_bin", 1000, 1000000),
-            "objective": trial.suggest_categorical("objective", ["lambdarank", "rank_xendcg"]),
-            "min_split_gain": trial.suggest_float("min_split_gain", 1e-8, 1e-2, log=True),
-            "min_child_weight": trial.suggest_float("min_child_weight", 1e-5, 0.1, log=True),
-            "min_child_samples": trial.suggest_int("min_child_samples", 8, 100),
-            "random_state": trial.suggest_categorical("random_state", [1]),
-            "colsample_bytree": trial.suggest_float("colsample_bytree", 1e-2, 1., log=True),
-            "reg_alpha": trial.suggest_float("reg_alpha", 1e-7, 0.1, log=True),
-            "reg_lambda": trial.suggest_float("reg_lambda", 1e-7, 0.1, log=True),
+            "input_norm": trial.suggest_categorical("input_norm", [True, False]),
+            "activation": trial.suggest_categorical("activation", ["ReLU", "ELU", "SELU"]),
+            "dropout": trial.suggest_float("dropout", 0.0, 0.6),
+            "batch_size": trial.suggest_int("batch_size", 16, 256, log=True),
+            "post_activation": trial.suggest_categorical("post_activation", ["SELU", "ReLU", "Sigmoid", "TanH"]),
         }
 
-        if boosting_type != "goss":
-            params["subsample_freq"] = trial.suggest_int("subsample_freq", 0, 5)
-            if params["subsample_freq"] > 0:
-                params["subsample"] = trial.suggest_float("subsample", 1e-2, 1., log=True)
-            else:
-                params["subsample"] = 1.
+        n_layers = trial.suggest_int("n_layers", 1, 4)
+        for i in range(n_layers):
+            params["fc_model_sizes_{}".format(i)] = trial.suggest_int("batch_size", 16, 256, log=True),
 
-        if boosting_type == "dart":
-            params["drop_rate"] = trial.suggest_float("drop_rate", 1e-2, 0.5, log=True)
-            params["skip_drop"] = trial.suggest_float("skip_drop", 0.2, 0.8)
-            params["max_drop"] = trial.suggest_int("max_drop", 5, 100, log=True)
-        elif boosting_type == "goss":
-            params["top_rate"] = trial.suggest_float("top_rate", 0.1, 0.3)
-            params["other_rate"] = trial.suggest_float("other_rate", 0.02, 0.2)
+        if self.with_transformer:
+            params["transformer_N"] = trial.suggest_int("transformer_N", 1, 4),
+            params["transformer_dff"] = trial.suggest_int("transformer_dff", 32, 256, log=True),
+            params["transformer_heads"] = trial.suggest_int("transformer_heads", 2, 8),
+            params["transformer_dropout"] = trial.suggest_float("transformer_dropout", 0.0, 0.6, log=False),
 
         return params
 
@@ -200,7 +335,7 @@ if __name__ == "__main__":
                     ratings[j] = ratings[j].merge(item_factors[j], on=["item"], how="left", sort=False)
                     ratings[j] = ratings[j].merge(user_factors[j], on=["user"], how="left", sort=True)
 
-                optimizer = LightGBMOptimizer(urms, ratings, validations, n_folds=n_folds)
+                optimizer = AllRankOptimizer(urms, ratings, validations, n_folds=n_folds)
                 optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=folder, study_name_suffix="-f")
 
                 results_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \

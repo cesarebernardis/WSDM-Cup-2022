@@ -1,6 +1,7 @@
 import os
 import optuna
 import argparse
+import pyltr
 import lightgbm as lgbm
 
 import numpy as np
@@ -8,7 +9,8 @@ import pandas as pd
 import scipy.sparse as sps
 import pickle as pkl
 
-from sklearn.model_selection import GroupKFold
+
+from utils import RandomizedGroupKFold
 
 from RecSysFramework.DataManager import Dataset
 from RecSysFramework.Recommender.DataIO import DataIO
@@ -31,19 +33,21 @@ def print_importance(model, n=10):
         print(names[i], importances[i])
 
 
-class LightGBMOptimizer(Optimizer):
+class PyltrOptimizer(Optimizer):
 
-    NAME = "lgbm"
+    NAME = "pyltr"
 
     def evaluate(self, predictions_matrix, val, cutoff=10):
         return evaluate(predictions_matrix, val, cutoff=cutoff)
 
     def train_cv(self, _params, _urm, _ratings, _validation, test_df=None, filler=None):
 
-        _params["metric"] = None
+        _params["metric"] = pyltr.metrics.NDCG(k=10)
+        _params["verbose"] = 0
+        _params["warm_start"] = False
         #_params["n_jobs"] = 4
-        model = lgbm.LGBMRanker(**_params)
-        splitter = GroupKFold(self.n_folds)
+        model = pyltr.models.LambdaMART(**_params)
+        splitter = RandomizedGroupKFold(self.n_folds, random_state=19)
         _ratings = _ratings.sort_values(by=['user'])
 
         validation_df = pd.DataFrame({'user': _ratings.user.copy(), 'item': _ratings.item.copy()})
@@ -66,7 +70,6 @@ class LightGBMOptimizer(Optimizer):
         _r = sps.csr_matrix(([], ([], [])), shape=_validation.shape)
         test_r = sps.csr_matrix(([], ([], [])), shape=_validation.shape)
 
-        np.random.seed(13)
         for train_index, test_index in splitter.split(_ratings, validation_df, _ratings.user.values):
 
             # Ensure to keep order
@@ -82,20 +85,23 @@ class LightGBMOptimizer(Optimizer):
             train_df = _ratings.drop(['user', 'item'], axis=1)
             train_pred_df = train_validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
             val_pred_df = validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
-            model.fit(
-                train_df.iloc[train_index], train_pred_df.iloc[train_index], group=train_groups,
-                eval_set=[(train_df.iloc[test_index], val_pred_df.iloc[test_index])],
-                eval_group=[test_groups], eval_at=(1, 10), eval_metric="ndcg@10",
-                callbacks=[lgbm.early_stopping(10, verbose=False), lgbm.log_evaluation(0)]
+
+            monitor = pyltr.models.monitors.ValidationMonitor(
+                train_df.iloc[test_index].to_numpy(), val_pred_df.iloc[test_index].relevance.to_numpy(),
+                _ratings.iloc[test_index].user.to_numpy(), metric=_params["metric"], stop_after=500
             )
-            predictions = model.predict(train_df.iloc[test_index], raw_score=True) + 1e-10
+
+            model.fit(train_df.iloc[train_index].to_numpy(), train_pred_df.iloc[train_index].relevance.to_numpy(),
+                      _ratings.iloc[train_index].user.to_numpy(), monitor=monitor)
+
+            predictions = model.predict(train_df.iloc[test_index]) + 1e-10
             predictions_matrix = sps.csr_matrix((predictions, (_ratings.user.values[test_index],
                                                                _ratings.item.values[test_index])),
                                     shape=_validation.shape)
             _r += remove_seen(predictions_matrix, _urm)
 
             if test_df is not None:
-                predictions = model.predict(test_df.drop(['user', 'item'], axis=1), raw_score=True) + 1e-10
+                predictions = model.predict(test_df.drop(['user', 'item'], axis=1).to_numpy()) + 1e-10
                 predictions_matrix = sps.csr_matrix((predictions, (test_df.user.values, test_df.item.values)),
                                                     shape=_validation.shape)
                 predictions_matrix = remove_seen(predictions_matrix, _urm + _validation)
@@ -113,40 +119,16 @@ class LightGBMOptimizer(Optimizer):
 
     def get_params_from_trial(self, trial):
 
-        boosting_type = trial.suggest_categorical("boosting_type", ["gbdt", "dart", "goss"])
-
-        # https://github.com/Microsoft/LightGBM/issues/695#issuecomment-315591634
         params = {
-            "boosting_type": boosting_type,
             "learning_rate": trial.suggest_float("learning_rate", 1e-2, 0.4, log=True),
             "n_estimators": trial.suggest_categorical("n_estimators", [500]),
-            "max_depth": trial.suggest_int("max_depth", 3, 31),
-            "num_leaves": trial.suggest_int("num_leaves", 7, 200),
-            "subsample_for_bin": trial.suggest_int("subsample_for_bin", 1000, 1000000),
-            "objective": trial.suggest_categorical("objective", ["lambdarank", "rank_xendcg"]),
-            "min_split_gain": trial.suggest_float("min_split_gain", 1e-8, 1e-2, log=True),
-            "min_child_weight": trial.suggest_float("min_child_weight", 1e-5, 0.1, log=True),
-            "min_child_samples": trial.suggest_int("min_child_samples", 8, 100),
-            "random_state": trial.suggest_categorical("random_state", [1]),
-            "colsample_bytree": trial.suggest_float("colsample_bytree", 1e-2, 1., log=True),
-            "reg_alpha": trial.suggest_float("reg_alpha", 1e-7, 0.1, log=True),
-            "reg_lambda": trial.suggest_float("reg_lambda", 1e-7, 0.1, log=True),
+            "max_depth": trial.suggest_int("max_depth", 1, 4),
+            "min_samples_split": trial.suggest_int("min_samples_split", 1, 10),
+            "min_samples_leaf": trial.suggest_int("min_samples_leaf", 1, 10),
+            "subsample": trial.suggest_float("subsample", 0.1, 1., log=True),
+            "query_subsample": trial.suggest_float("query_subsample", 0.1, 1., log=True),
+            "random_state": trial.suggest_categorical("random_state", [10]),
         }
-
-        if boosting_type != "goss":
-            params["subsample_freq"] = trial.suggest_int("subsample_freq", 0, 5)
-            if params["subsample_freq"] > 0:
-                params["subsample"] = trial.suggest_float("subsample", 1e-2, 1., log=True)
-            else:
-                params["subsample"] = 1.
-
-        if boosting_type == "dart":
-            params["drop_rate"] = trial.suggest_float("drop_rate", 1e-2, 0.5, log=True)
-            params["skip_drop"] = trial.suggest_float("skip_drop", 0.2, 0.8)
-            params["max_drop"] = trial.suggest_int("max_drop", 5, 100, log=True)
-        elif boosting_type == "goss":
-            params["top_rate"] = trial.suggest_float("top_rate", 0.1, 0.3)
-            params["other_rate"] = trial.suggest_float("other_rate", 0.02, 0.2)
 
         return params
 
@@ -155,8 +137,8 @@ class LightGBMOptimizer(Optimizer):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='LightGBM ensemble hyperparameter optimization')
-    parser.add_argument('--ntrials', '-t', metavar='TRIALS', type=int, nargs='?', default=250,
+    parser = argparse.ArgumentParser(description='PYLTR ensemble hyperparameter optimization')
+    parser.add_argument('--ntrials', '-t', metavar='TRIALS', type=int, nargs='?', default=150,
                         help='Number of trials for hyperparameter optimization')
     parser.add_argument('--nfolds', '-cv', metavar='FOLDS', type=int, nargs='?', default=5,
                         help='Number of CV folds for hyperparameter optimization')
@@ -200,7 +182,7 @@ if __name__ == "__main__":
                     ratings[j] = ratings[j].merge(item_factors[j], on=["item"], how="left", sort=False)
                     ratings[j] = ratings[j].merge(user_factors[j], on=["user"], how="left", sort=True)
 
-                optimizer = LightGBMOptimizer(urms, ratings, validations, n_folds=n_folds)
+                optimizer = PyltrOptimizer(urms, ratings, validations, n_folds=n_folds)
                 optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=folder, study_name_suffix="-f")
 
                 results_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \

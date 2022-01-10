@@ -26,7 +26,7 @@ class LightGBMOptimizer(Optimizer):
     def train_cv(self, _params, _urm, _ratings, _validation, test_df=None, filler=None):
 
         if "n_estimators" not in _params.keys():
-            _params["n_estimators"] = 600
+            _params["n_estimators"] = 1000
         _params["metric"] = None
         #_params["n_jobs"] = 4
         model = lgbm.LGBMRanker(**_params)
@@ -106,7 +106,7 @@ class LightGBMOptimizer(Optimizer):
             "boosting_type": boosting_type,
             "learning_rate": trial.suggest_float("learning_rate", 1e-2, 0.4, log=True),
             "max_depth": trial.suggest_int("max_depth", 3, 31),
-            "num_leaves": trial.suggest_int("num_leaves", 7, 200),
+            "num_leaves": trial.suggest_int("num_leaves", 7, 400),
             "subsample_for_bin": trial.suggest_int("subsample_for_bin", 1000, 1000000),
             "objective": trial.suggest_categorical("objective", ["lambdarank", "rank_xendcg"]),
             "min_split_gain": trial.suggest_float("min_split_gain", 1e-8, 1e-2, log=True),
