@@ -459,13 +459,13 @@ class FeatureGenerator:
 
         fpl = np.ediff1d(folder_urm.tocsr().indptr)
         itempop = np.ediff1d(folder_urm.tocsc().indptr)
-        item_avg_rating = np.divide(folder_urm.sum(axis=0).flatten(), 1e-6 + itempop)
-        user_avg_rating = np.divide(folder_urm.sum(axis=1).flatten(), 1e-6 + fpl)
+        item_avg_rating = np.divide(np.array(folder_urm.sum(axis=0)).flatten(), 1e-6 + itempop)
+        user_avg_rating = np.divide(np.array(folder_urm.sum(axis=1)).flatten(), 1e-6 + fpl)
 
         test_fpl = np.ediff1d(folder_test_urm.tocsr().indptr)
         test_itempop = np.ediff1d(folder_test_urm.tocsc().indptr)
-        test_item_avg_rating = np.divide(folder_test_urm.sum(axis=0).flatten(), 1e-6 + test_itempop)
-        test_user_avg_rating = np.divide(folder_test_urm.sum(axis=1).flatten(), 1e-6 + test_fpl)
+        test_item_avg_rating = np.divide(np.array(folder_test_urm.sum(axis=0)).flatten(), 1e-6 + test_itempop)
+        test_user_avg_rating = np.divide(np.array(folder_test_urm.sum(axis=1)).flatten(), 1e-6 + test_fpl)
 
         ratings = [self._initialize_dataframe(fold) for fold in range(len(self.validation_negs))]
 
@@ -541,13 +541,17 @@ class FeatureGenerator:
             is_complete = True
             recname = algorithm.RECOMMENDER_NAME
             output_folder_path = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + recname + os.sep
+            if not os.path.isfile(output_folder_path + self.exam_folder + "_valid_scores.tsv.gz") or \
+                        not os.path.isfile(output_folder_path + self.exam_folder + "_test_scores.tsv.gz"):
+                print(recname, folder, "predictions not found")
+                continue
             print("Loading", folder, recname)
             for fold in range(self.n_folds):
                 validation_folder = self.exam_folder + "-" + str(fold)
                 dfs = []
                 for i in range(-1, self.additional_negs):
                     suffix = "" if i < 0 else "-{}".format(i)
-                    r = read_ratings(output_folder_path + validation_folder + "_valid_scores{}.tsv".format(suffix),
+                    r = read_ratings(output_folder_path + validation_folder + "_valid_scores{}.tsv.gz".format(suffix),
                                      self.user_mappers[fold], self.item_mappers[fold])
                     if normalize:
                         r = row_minmax_scaling(r)
@@ -558,7 +562,7 @@ class FeatureGenerator:
             dfs = []
             for i in range(-1, self.additional_negs):
                 suffix = "" if i < 0 else "-{}".format(i)
-                r = read_ratings(output_folder_path + self.exam_folder + "_valid_scores{}.tsv".format(suffix),
+                r = read_ratings(output_folder_path + self.exam_folder + "_valid_scores{}.tsv.gz".format(suffix),
                                  self.user_mappers[-2], self.item_mappers[-2])
                 if normalize:
                     r = row_minmax_scaling(r)
@@ -569,7 +573,7 @@ class FeatureGenerator:
             dfs = []
             for i in range(-1, self.additional_negs):
                 suffix = "" if i < 0 else "-{}".format(i)
-                r = read_ratings(output_folder_path + self.exam_folder + "_test_scores{}.tsv".format(suffix),
+                r = read_ratings(output_folder_path + self.exam_folder + "_test_scores{}.tsv.gz".format(suffix),
                                  self.user_mappers[-1], self.item_mappers[-1])
                 if normalize:
                     r = row_minmax_scaling(r)
