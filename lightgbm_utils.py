@@ -126,7 +126,7 @@ class LightGBMOptimizer(Optimizer):
                 params["subsample"] = 1.
 
         if boosting_type == "dart":
-            params["n_estimators"]: trial.suggest_int("n_estimators", 50, 600, log=True)
+            params["n_estimators"] = trial.suggest_int("n_estimators", 50, 700, log=True)
             params["drop_rate"] = trial.suggest_float("drop_rate", 1e-2, 0.5, log=True)
             params["skip_drop"] = trial.suggest_float("skip_drop", 0.2, 0.8)
             params["max_drop"] = trial.suggest_int("max_drop", 5, 100, log=True)

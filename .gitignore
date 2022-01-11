@@ -21,7 +21,7 @@ catboost_info/
 all-results.csv
 
 # Windows version of similaripy
-RecSysFramework/Utils/similaripy-0.1.2/
+RecSysFramework/Utils/similaripy/
 
 # Do not add Cython compiled for Windows
 *.pyd
