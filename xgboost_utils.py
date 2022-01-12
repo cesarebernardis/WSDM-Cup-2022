@@ -21,7 +21,9 @@ class XGBoostOptimizer(Optimizer):
 
     NAME = "xgb"
 
-    def train_cv(self, _params, _urm, _ratings, _validation, test_df=None):
+    def train_cv(self, _params, _urm, _ratings, _validation, test_df=None, filler=None):
+
+        # filler not supported
 
         model = xgb.XGBRanker(**_params)
         _ratings = _ratings.sort_values(by=['user'])

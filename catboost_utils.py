@@ -19,8 +19,9 @@ class CatboostOptimizer(Optimizer):
 
     NAME = "catboost"
 
-    def train_cv(self, _params, _urm, _ratings, _validation, test_df=None):
+    def train_cv(self, _params, _urm, _ratings, _validation, test_df=None, filler=None):
 
+        # filler not supported
         #_params["thread_count"] = 14
 
         model = catboost.CatBoostRanker(**_params)

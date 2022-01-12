@@ -245,10 +245,10 @@ if __name__ == "__main__":
         #         print(v)
 
         filler = read_ratings(break_ties_folder + "valid_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
-        er = break_ties_with_filler(er, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-3)
+        er = break_ties_with_filler(er, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-4)
 
         filler = read_ratings(break_ties_folder + "test_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
-        er_test = break_ties_with_filler(er_test, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-3)
+        er_test = break_ties_with_filler(er_test, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-4)
 
         output_scores(ratings_folder + "valid_scores_{}.tsv".format(args.gbdt), er, user_mappers[-2], item_mappers[-2], compress=False)
         output_scores(ratings_folder + "test_scores_{}.tsv".format(args.gbdt), er_test, user_mappers[-1], item_mappers[-1], compress=False)
