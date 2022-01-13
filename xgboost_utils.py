@@ -84,7 +84,7 @@ class XGBoostOptimizer(Optimizer):
         return {
             "booster": trial.suggest_categorical("booster", ["gbtree", "gblinear", "dart"]),
             "max_depth": trial.suggest_int("max_depth", 2, 9),
-            "n_estimators": trial.suggest_int("n_estimators", 50, 400),
+            "n_estimators": trial.suggest_int("n_estimators", 50, 600),
             "learning_rate": trial.suggest_float("learning_rate", 1e-2, 0.5, log=True),
             "objective": trial.suggest_categorical("objective", ["rank:ndcg", "rank:map"]),
             "gamma": trial.suggest_float("gamma", 1e-9, 1e-2, log=True),
