@@ -17,6 +17,12 @@ from RecSysFramework.Evaluation.Metrics import ndcg
 from RecSysFramework.ExperimentalConfig import EXPERIMENTAL_CONFIG
 
 
+def add_noise(predictions, noise_weight=1e-3, random_seed=97):
+    np.random.seed(random_seed)
+    predictions.data += np.random.random(len(predictions.data)) * noise_weight
+    return predictions
+
+
 def reduce_score(predictions, perc=0.1):
     predictions = predictions.tocsr()
     pl = np.ediff1d(predictions.indptr)
@@ -429,7 +435,7 @@ class FeatureGenerator:
             for k, v in inv_mapper.items():
                 converter[k] = user_mapper[v]
             user_converters.append(converter)
-            assert len(np.unique(converter)) == len(inv_mapper), "Errore user: {} - {}".format(len(np.unique(converter)), len(inv_mapper))
+            assert len(np.unique(converter)) == len(inv_mapper), "Error user: {} - {}".format(len(np.unique(converter)), len(inv_mapper))
 
         item_converters = []
         for i in range(len(self.item_mappers)):
@@ -438,7 +444,7 @@ class FeatureGenerator:
             for k, v in inv_mapper.items():
                 converter[k] = item_mapper[v]
             item_converters.append(converter)
-            assert len(np.unique(converter)) == len(inv_mapper), "Errore item: {} - {}".format(len(np.unique(converter)), len(inv_mapper))
+            assert len(np.unique(converter)) == len(inv_mapper), "Error item: {} - {}".format(len(np.unique(converter)), len(inv_mapper))
 
         return user_converters, item_converters
 
@@ -546,6 +552,9 @@ class FeatureGenerator:
                 print(recname, folder, "predictions not found")
                 continue
             print("Loading", folder, recname)
+            featname = folder + "_" + recname
+            if normalize:
+                featname += "_norm"
             for fold in range(self.n_folds):
                 validation_folder = self.exam_folder + "-" + str(fold)
                 dfs = []
@@ -556,7 +565,7 @@ class FeatureGenerator:
                     if normalize:
                         r = row_minmax_scaling(r)
                     r = r.tocoo()
-                    dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data}))
+                    dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, featname: r.data}))
                 ratings[fold] = ratings[fold].merge(pd.concat(dfs), on=["user", "item"], how="left", sort=True)
 
             dfs = []
@@ -567,7 +576,7 @@ class FeatureGenerator:
                 if normalize:
                     r = row_minmax_scaling(r)
                 r = r.tocoo()
-                dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data}))
+                dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, featname: r.data}))
             ratings[-2] = ratings[-2].merge(pd.concat(dfs), on=["user", "item"], how="left", sort=True)
 
             dfs = []
@@ -578,7 +587,7 @@ class FeatureGenerator:
                 if normalize:
                     r = row_minmax_scaling(r)
                 r = r.tocoo()
-                dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, folder + "_" + recname: r.data}))
+                dfs.append(pd.DataFrame({'user': r.row, 'item': r.col, featname: r.data}))
             ratings[-1] = ratings[-1].merge(pd.concat(dfs), on=["user", "item"], how="left", sort=True)
 
         return ratings
@@ -591,6 +600,8 @@ class FeatureGenerator:
         results_filename = results_basepath + "{}-ensemble-prediction-{}".format(algo, self.exam_folder)
         break_ties_filename = results_basepath + "ratings-ensemble-prediction-{}".format(self.exam_folder)
         feat_name = '{}-{}-ensemble'.format(folder, algo)
+        if normalize:
+            feat_name += "-norm"
         ratings = []
 
         if os.path.isfile(results_filename + "-valid.tsv.gz") and os.path.isfile(results_filename + "-test.tsv.gz"):
