@@ -61,7 +61,7 @@ class XGBoostOptimizer(Optimizer):
                                                                _ratings.item.values[test_index])),
                                     shape=_validation.shape)
 
-            _r += remove_seen(predictions_matrix, _urm)
+            _r += remove_seen(predictions_matrix, _urm) / int(len(splits) / self.n_folds)
 
             if test_df is not None:
                 predictions = model.predict(test_df.drop(['user', 'item'], axis=1))
