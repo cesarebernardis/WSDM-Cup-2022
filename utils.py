@@ -655,6 +655,8 @@ class FeatureGenerator:
             ratings.append(pd.concat(dfs))
             self.basic_dfs[-1] = self.basic_dfs[-1].merge(ratings[-1], on=["user", "item"], how="left", sort=True)
 
+            print("Loaded", folder, algo, "normalize" if normalize else "", "fix_validation" if fix_validation else "")
+
         return ratings
 
     def load_lgbm_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,

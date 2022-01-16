@@ -119,7 +119,7 @@ class LightGBMTopkOptimizer(LightGBMOptimizer):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='LightGBM final ensemble hyperparameter optimization')
+    parser = argparse.ArgumentParser(description='Final ensemble hyperparameter optimization')
     parser.add_argument('--ntrials', '-t', metavar='TRIALS', type=int, nargs='?', default=200,
                         help='Number of trials for hyperparameter optimization')
     parser.add_argument('--nfolds', '-cv', metavar='FOLDS', type=int, nargs='?', default=5,
@@ -182,12 +182,26 @@ if __name__ == "__main__":
             for folder in EXPERIMENTAL_CONFIG['datasets']:
                 if exam_folder in folder:
                     print("Loading", folder)
-                    all_predictions.append(featgen.load_algorithms_predictions(folder, only_best_baselines=False))
+                    all_predictions.append(
+                        featgen.load_algorithms_predictions(folder, only_best_baselines=False, normalize=False))
                     all_predictions.append(featgen.load_folder_features(folder, include_fold_features=False))
-                    featgen.load_ratings_ensemble_feature(folder)
-                    featgen.load_lgbm_ensemble_feature(folder, break_ties=True)
-                    featgen.load_catboost_ensemble_feature(folder, break_ties=True)
-                    featgen.load_xgb_ensemble_feature(folder, break_ties=True)
+                    for normalize in [True, False]:
+                        featgen.load_ratings_ensemble_feature(folder, normalize=normalize)
+                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True)
+                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True,
+                                                           algo_suffix="-small")
+                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True,
+                                                           algo_suffix="-small-nonorm", featname_suffix="-nonorm")
+                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True,
+                                                           algo_suffix="-small-both", featname_suffix="-both")
+                        featgen.load_catboost_ensemble_feature(folder, normalize=normalize, break_ties=True)
+                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True)
+                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True,
+                                                          algo_suffix="-small")
+                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True,
+                                                          algo_suffix="-small-nonorm", featname_suffix="-nonorm")
+                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True,
+                                                          algo_suffix="-small-both", featname_suffix="-both")
 
             basic_dfs = featgen.get_final_df()
 
@@ -245,10 +259,10 @@ if __name__ == "__main__":
         #         print(v)
 
         filler = read_ratings(break_ties_folder + "valid_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
-        er = break_ties_with_filler(er, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-4)
+        er = break_ties_with_filler(er, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-6)
 
         filler = read_ratings(break_ties_folder + "test_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
-        er_test = break_ties_with_filler(er_test, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-4)
+        er_test = break_ties_with_filler(er_test, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-6)
 
         output_scores(ratings_folder + "valid_scores_{}.tsv".format(args.gbdt), er, user_mappers[-2], item_mappers[-2], compress=False)
         output_scores(ratings_folder + "test_scores_{}.tsv".format(args.gbdt), er_test, user_mappers[-1], item_mappers[-1], compress=False)
