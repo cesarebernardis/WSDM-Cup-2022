@@ -655,25 +655,30 @@ class FeatureGenerator:
 
         return ratings
 
-    def load_lgbm_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4, featname_suffix=""):
-        return self._load_ensemble_feature(folder, "lgbm", normalize=normalize, break_ties=break_ties,
+    def load_lgbm_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+                                   featname_suffix="", algo_suffix=""):
+        return self._load_ensemble_feature(folder, "lgbm" + algo_suffix, normalize=normalize, break_ties=break_ties,
                                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix)
 
-    def load_catboost_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4, featname_suffix=""):
-        return self._load_ensemble_feature(folder, "catboost", normalize=normalize, break_ties=break_ties,
+    def load_catboost_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+                                       featname_suffix="", algo_suffix=""):
+        return self._load_ensemble_feature(folder, "catboost" + algo_suffix, normalize=normalize, break_ties=break_ties,
                                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix)
 
-    def load_xgb_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4, featname_suffix=""):
-        return self._load_ensemble_feature(folder, "xgb", normalize=normalize, break_ties=break_ties,
+    def load_xgb_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+                                  featname_suffix="", algo_suffix=""):
+        return self._load_ensemble_feature(folder, "xgb" + algo_suffix, normalize=normalize, break_ties=break_ties,
                                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix)
 
-    def load_pyltr_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4, featname_suffix=""):
-        return self._load_ensemble_feature(folder, "pyltr", normalize=normalize, break_ties=break_ties,
+    def load_pyltr_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+                                    featname_suffix="", algo_suffix=""):
+        return self._load_ensemble_feature(folder, "pyltr" + algo_suffix, normalize=normalize, break_ties=break_ties,
                                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix)
 
-    def load_ratings_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4, featname_suffix=""):
+    def load_ratings_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+                                      featname_suffix="", algo_suffix=""):
         # WARNING! ratings ensemble not available for local cv
-        return self._load_ensemble_feature(folder, "ratings", normalize=normalize, break_ties=break_ties,
+        return self._load_ensemble_feature(folder, "ratings" + algo_suffix, normalize=normalize, break_ties=break_ties,
                                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix)
 
     def add_features(self, df, fold, on=["user", "item"], left_suffix="", right_suffix=""):

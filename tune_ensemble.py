@@ -106,7 +106,7 @@ def optimize_all(exam_folder, ratings, user_masks, validations, force=False, n_t
 
 if __name__ == "__main__":
 
-    n_trials = 400
+    n_trials = 350
     cold_user_threshold = EXPERIMENTAL_CONFIG['cold_user_threshold']
     quite_cold_user_threshold = EXPERIMENTAL_CONFIG['quite_cold_user_threshold']
     quite_warm_user_threshold = EXPERIMENTAL_CONFIG['quite_warm_user_threshold']

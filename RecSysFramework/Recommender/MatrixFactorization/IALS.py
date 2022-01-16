@@ -46,7 +46,7 @@ class IALS(BaseMatrixFactorizationRecommender):
         self.reg = reg
 
         model = implicit.als.AlternatingLeastSquares(factors=self.num_factors, regularization=self.reg,
-                                                     iterations=epochs, random_state=7)
+                                                     iterations=epochs, random_state=7, use_gpu=False)
         model.fit(self.URM_train.transpose().tocsr())
 
         self.USER_factors = model.user_factors
