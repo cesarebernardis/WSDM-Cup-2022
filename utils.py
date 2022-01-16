@@ -595,7 +595,7 @@ class FeatureGenerator:
 
 
     def _load_ensemble_feature(self, folder, algo, normalize=True, break_ties=False,
-                               break_ties_penalization=1e-4, featname_suffix="", fix_validation=True):
+                               break_ties_penalization=1e-6, featname_suffix="", fix_validation=True):
 
         results_basepath = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep
 
@@ -659,27 +659,27 @@ class FeatureGenerator:
 
         return ratings
 
-    def load_lgbm_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+    def load_lgbm_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-6,
                                    featname_suffix="", algo_suffix="", fix_validation=True):
         return self._load_ensemble_feature(folder, "lgbm" + algo_suffix, normalize=normalize, break_ties=break_ties,
                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix, fix_validation=fix_validation)
 
-    def load_catboost_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+    def load_catboost_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-6,
                                        featname_suffix="", algo_suffix="", fix_validation=True):
         return self._load_ensemble_feature(folder, "catboost" + algo_suffix, normalize=normalize, break_ties=break_ties,
                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix, fix_validation=fix_validation)
 
-    def load_xgb_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+    def load_xgb_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-6,
                                   featname_suffix="", algo_suffix="", fix_validation=True):
         return self._load_ensemble_feature(folder, "xgb" + algo_suffix, normalize=normalize, break_ties=break_ties,
                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix, fix_validation=fix_validation)
 
-    def load_pyltr_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+    def load_pyltr_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-6,
                                     featname_suffix="", algo_suffix="", fix_validation=True):
         return self._load_ensemble_feature(folder, "pyltr" + algo_suffix, normalize=normalize, break_ties=break_ties,
                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix, fix_validation=fix_validation)
 
-    def load_ratings_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-4,
+    def load_ratings_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-6,
                                       featname_suffix="", algo_suffix=""):
         # WARNING! ratings ensemble not available for local cv
         return self._load_ensemble_feature(folder, "ratings" + algo_suffix, normalize=normalize, break_ties=break_ties,

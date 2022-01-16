@@ -177,6 +177,9 @@ if __name__ == "__main__":
 
         if len(basic_dfs) <= 0:
 
+            break_ties_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
+            ratings_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
+
             all_predictions = []
 
             for folder in EXPERIMENTAL_CONFIG['datasets']:
@@ -204,6 +207,24 @@ if __name__ == "__main__":
                                                           algo_suffix="-small-both", featname_suffix="-both")
 
             basic_dfs = featgen.get_final_df()
+
+            all_ratings = read_ratings(ratings_folder + "valid_scores_ratings.tsv.gz".format(exam_folder),
+                                       exam_user_mapper, exam_item_mapper).tocoo()
+            basic_dfs[-2] = basic_dfs[-2].merge(pd.DataFrame({'user': all_ratings.row, 'item': all_ratings.col, "all_ratings_ensemble": all_ratings.data}),
+                                                on=["user", "item"], how="left", sort=True)
+            all_ratings =  row_minmax_scaling(read_ratings(ratings_folder + "valid_scores_ratings.tsv.gz".format(exam_folder),
+                                       exam_user_mapper, exam_item_mapper)).tocoo()
+            basic_dfs[-2] = basic_dfs[-2].merge(pd.DataFrame({'user': all_ratings.row, 'item': all_ratings.col, "all_ratings_ensemble_norm": all_ratings.data}),
+                                                on=["user", "item"], how="left", sort=True)
+
+            all_ratings = read_ratings(ratings_folder + "test_scores_ratings.tsv.gz".format(exam_folder),
+                                       exam_user_mapper, exam_item_mapper).tocoo()
+            basic_dfs[-1] = basic_dfs[-1].merge(pd.DataFrame({'user': all_ratings.row, 'item': all_ratings.col, "all_ratings_ensemble": all_ratings.data}),
+                                                on=["user", "item"], how="left", sort=True)
+            all_ratings =  row_minmax_scaling(read_ratings(ratings_folder + "test_scores_ratings.tsv.gz".format(exam_folder),
+                                       exam_user_mapper, exam_item_mapper)).tocoo()
+            basic_dfs[-1] = basic_dfs[-1].merge(pd.DataFrame({'user': all_ratings.row, 'item': all_ratings.col, "all_ratings_ensemble_norm": all_ratings.data}),
+                                                on=["user", "item"], how="left", sort=True)
 
             for predictions in all_predictions:
                 for j in range(len(predictions)):
@@ -235,8 +256,6 @@ if __name__ == "__main__":
                 basic_dfs[j].to_parquet(df_filename + "-{}.parquet.gzip".format(j), compression="gzip")
 
         print("Final dataframe shape:", basic_dfs[-2].shape)
-        break_ties_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
-        ratings_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
         fillers = None
         #[
         #    read_ratings(break_ties_folder + "valid_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper),

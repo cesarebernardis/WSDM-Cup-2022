@@ -96,8 +96,8 @@ if __name__ == "__main__":
         print(outstr)
 
         basepath = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
-        output_scores(basepath + "valid_scores_ratings.tsv.gz", urm_exam_valid_total, exam_user_mapper, exam_item_mapper, compress=False)
-        output_scores(basepath + "test_scores_ratings.tsv.gz", urm_exam_test_total, exam_user_mapper, exam_item_mapper, compress=False)
+        output_scores(basepath + "valid_scores_ratings.tsv.gz", urm_exam_valid_total, exam_user_mapper, exam_item_mapper, compress=True)
+        output_scores(basepath + "test_scores_ratings.tsv.gz", urm_exam_test_total, exam_user_mapper, exam_item_mapper, compress=True)
 
         if output_sub:
             output_scores(basepath + "valid_scores.tsv", urm_exam_valid_total, exam_user_mapper, exam_item_mapper, compress=False)
