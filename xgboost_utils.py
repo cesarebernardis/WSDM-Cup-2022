@@ -71,11 +71,11 @@ class XGBoostOptimizer(Optimizer):
                 test_r += predictions_matrix / len(splits)
 
         user_ndcg, n_evals = evaluate(_r, _validation, cutoff=10)
-        _r = row_minmax_scaling(_r).tocoo()
         part_score = np.sum(user_ndcg) / n_evals
+        _r = _r.tocoo()
 
         if len(test_r.data) > 0:
-            return _r, row_minmax_scaling(test_r).tocoo(), part_score
+            return _r, test_r.tocoo(), part_score
 
         return _r, part_score
 
