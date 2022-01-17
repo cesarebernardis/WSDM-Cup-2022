@@ -24,12 +24,75 @@ from RecSysFramework.Utils import load_compressed_csr_matrix, save_compressed_cs
 from lightgbm_utils import LightGBMOptimizer, LightGBMSmallOptimizer
 from xgboost_utils import XGBoostOptimizer, XGBoostSmallOptimizer
 from catboost_utils import CatboostOptimizer, CatboostSmallOptimizer
-from utils import FeatureGenerator, remove_seen, remove_useless_features, get_useless_columns, break_ties_with_filler
+from utils import FeatureGenerator, remove_seen, remove_useless_features, get_useless_columns, break_ties_with_filler, RandomizedGroupKFold
 from utils import create_dataset_from_folder, compress_urm, read_ratings, output_scores, row_minmax_scaling, evaluate, first_level_ensemble, stretch_urm, make_submission
 
 
 VAL_WEIGHT = 2.
 EXPERIMENTAL_CONFIG['n_folds'] = 0
+
+
+def compute_permutation_importance(_params, _ratings, _validation, cv_folds=5, random_state=42):
+
+    if "n_estimators" not in _params.keys():
+        _params["n_estimators"] = 1500
+    _params["metric"] = None
+    # _params["n_jobs"] = 4
+    model = lgbm.LGBMRanker(**_params)
+    _ratings = _ratings.sort_values(by=['user'])
+
+    validation_df = pd.DataFrame({'user': _ratings.user.copy(), 'item': _ratings.item.copy()})
+    validation_true = pd.DataFrame({'user': _validation.row, 'item': _validation.col, 'relevance': 1})
+    validation_df = validation_df.merge(validation_true, on=["user", "item"], how="left", sort=True)
+
+    train_validation_df = validation_df.copy()
+    validation_df.fillna(0, inplace=True)
+
+    train_validation_df.fillna(0, inplace=True)
+
+    feature_importances = {}
+    splitter = RandomizedGroupKFold(cv_folds, random_state=random_state)
+    for fold, (train_index, test_index) in enumerate(splitter.split(_ratings, validation_df, _ratings.user.values)):
+
+        feature_importances[fold] = {}
+        # Ensure to keep order
+        train_index = np.sort(train_index)
+        test_index = np.sort(test_index)
+
+        users, counts = np.unique(_ratings.user.values[train_index], return_counts=True)
+        train_groups = counts[np.argsort(users)]
+
+        users, counts = np.unique(_ratings.user.values[test_index], return_counts=True)
+        test_groups = counts[np.argsort(users)]
+
+        train_df = _ratings.drop(['user', 'item'], axis=1)
+        train_pred_df = train_validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
+        val_pred_df = validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
+        model.fit(
+            train_df.iloc[train_index], train_pred_df.iloc[train_index], group=train_groups,
+            eval_set=[(train_df.iloc[test_index], val_pred_df.iloc[test_index])],
+            eval_group=[test_groups], eval_at=(1, 10), eval_metric="ndcg@10",
+            callbacks=[lgbm.early_stopping(10, verbose=False), lgbm.log_evaluation(0)]
+        )
+
+        def score_func(X, y):
+            _valid = sps.csr_matrix((y.relevance, (y.user, y.item)), shape=_validation.shape)
+            predictions = model.predict(X, raw_score=True) + 1e-10
+            predictions_matrix = sps.csr_matrix((predictions, (X.user.values, X.item.values)), shape=_valid.shape)
+            user_ndcg, n_evals = evaluate(predictions_matrix, _valid, cutoff=10)
+            return np.sum(user_ndcg) / n_evals
+
+        eli5_dataset_x = train_df.iloc[test_index]
+        eli5_dataset_y = validation_df.sort_values(by=['user']).iloc[test_index]
+        base_score, score_decreases = get_score_importances(score_func, eli5_dataset_x.to_numpy(), eli5_dataset_y.to_numpy(), n_iter=5)
+
+        fi = np.mean(score_decreases, axis=0)
+        for c_idx, column in enumerate(eli5_dataset_x.columns):
+            feature_importances[fold][column] = fi[c_idx]
+
+        print("Permutation importance: CV Fold {} completed".format(fold))
+
+    return feature_importances
 
 
 def fill_solution(predictions, base_pred, only_missing=False):
@@ -134,6 +197,8 @@ if __name__ == "__main__":
                         choices=['lightgbm', 'xgboost', 'catboost'], help='GBDT model to use')
     parser.add_argument('--small', '-s', nargs='?', dest="small", default=False, const=True,
                         help='Whether to train on two different splittings, but on smaller train sets')
+    parser.add_argument('--feature-importance', '-fi', nargs='?', dest="fi", default=False, const=True,
+                        help='Whether to compute feature (permutation) importance on the resulting model')
 
     args = parser.parse_args()
     n_trials = args.ntrials
@@ -185,26 +250,22 @@ if __name__ == "__main__":
             for folder in EXPERIMENTAL_CONFIG['datasets']:
                 if exam_folder in folder:
                     print("Loading", folder)
-                    all_predictions.append(
-                        featgen.load_algorithms_predictions(folder, only_best_baselines=False, normalize=False))
+                    all_predictions.append(featgen.load_algorithms_predictions(folder, only_best_baselines=False, normalize=False))
+                    all_predictions.append(featgen.load_algorithms_predictions(folder, only_best_baselines=False, normalize=True))
                     all_predictions.append(featgen.load_folder_features(folder, include_fold_features=False))
                     for normalize in [True, False]:
                         featgen.load_ratings_ensemble_feature(folder, normalize=normalize)
                         featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True)
-                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True,
-                                                           algo_suffix="-small")
-                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True,
-                                                           algo_suffix="-small-nonorm", featname_suffix="-nonorm")
-                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True,
-                                                           algo_suffix="-small-both", featname_suffix="-both")
+                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True, algo_suffix="-small")
+                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True, algo_suffix="-small-nonorm", featname_suffix="-nonorm")
+                        featgen.load_lgbm_ensemble_feature(folder, normalize=normalize, break_ties=True, algo_suffix="-small-both", featname_suffix="-both")
                         featgen.load_catboost_ensemble_feature(folder, normalize=normalize, break_ties=True)
+                        featgen.load_catboost_ensemble_feature(folder, normalize=normalize, break_ties=True, algo_suffix="-nonorm", featname_suffix="-nonorm")
+                        featgen.load_catboost_ensemble_feature(folder, normalize=normalize, break_ties=True, algo_suffix="-both", featname_suffix="-both")
                         featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True)
-                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True,
-                                                          algo_suffix="-small")
-                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True,
-                                                          algo_suffix="-small-nonorm", featname_suffix="-nonorm")
-                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True,
-                                                          algo_suffix="-small-both", featname_suffix="-both")
+                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True, algo_suffix="-small")
+                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True, algo_suffix="-small-nonorm", featname_suffix="-nonorm")
+                        featgen.load_xgb_ensemble_feature(folder, normalize=normalize, break_ties=True, algo_suffix="-small-both", featname_suffix="-both")
 
             basic_dfs = featgen.get_final_df()
 
@@ -262,20 +323,17 @@ if __name__ == "__main__":
         #    read_ratings(break_ties_folder + "test_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
         #]
         optimizer = optimizer_class(urms, basic_dfs, validations, fillers=fillers, n_folds=n_folds, random_trials_perc=0.3)
-        optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=None,
+        best_params = optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=None,
                                study_name_suffix="_endtoend_" + args.gbdt)
         er, er_test, result = optimizer.train_cv_best_params(urms[-2], basic_dfs[-2], validations[-1], filler=None, test_df=basic_dfs[-1])
         print("FINAL ENSEMBLE {}: {:.8f}".format(exam_folder, result))
 
-        # def score_func(X, y):
-        #     _, result = optimizer.train_cv_best_params(urms[-2], X, y)
-        #     return result
-        #
-        # base_score, score_decreases = get_score_importances(score_func, basic_dfs[-2], validations[-1], n_iter=7)
-        # feature_importances = np.mean(score_decreases, axis=0)
-        # with open("fi-{}.txt".format(exam_folder), "w") as file:
-        #     for v in feature_importances:
-        #         print(v)
+        if args.fi:
+            feature_importances = compute_permutation_importance(best_params, basic_dfs[-2], validations[-1])
+            with open("fi-{}.txt".format(exam_folder), "w") as file:
+                for f in feature_importances.keys():
+                    for c in feature_importances[f].keys():
+                        print(c, f, feature_importances[f][c], file=file, sep=",")
 
         filler = read_ratings(break_ties_folder + "valid_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
         er = break_ties_with_filler(er, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-6)
