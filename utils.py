@@ -595,7 +595,7 @@ class FeatureGenerator:
 
 
     def _load_ensemble_feature(self, folder, algo, normalize=True, break_ties=False,
-                               break_ties_penalization=1e-6, featname_suffix="", fix_validation=True):
+                               break_ties_penalization=1e-6, featname_suffix="", fix_validation=False):
 
         results_basepath = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep
 
@@ -633,7 +633,7 @@ class FeatureGenerator:
                     r = row_minmax_scaling(r)
                 r = r.tocoo()
                 if fix_validation:
-                    r /= 2
+                    r /= max(r.data)
                 if break_ties:
                     filler = row_minmax_scaling(read_ratings(break_ties_filename + "-valid{}.tsv.gz".format(suffix), self.user_mappers[-2], self.item_mappers[-2]))
                     r = break_ties_with_filler(r, filler, use_filler_ratings=True, penalization=break_ties_penalization).tocoo()
@@ -660,22 +660,22 @@ class FeatureGenerator:
         return ratings
 
     def load_lgbm_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-6,
-                                   featname_suffix="", algo_suffix="", fix_validation=True):
+                                   featname_suffix="", algo_suffix="", fix_validation=False):
         return self._load_ensemble_feature(folder, "lgbm" + algo_suffix, normalize=normalize, break_ties=break_ties,
                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix, fix_validation=fix_validation)
 
     def load_catboost_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-6,
-                                       featname_suffix="", algo_suffix="", fix_validation=True):
+                                       featname_suffix="", algo_suffix="", fix_validation=False):
         return self._load_ensemble_feature(folder, "catboost" + algo_suffix, normalize=normalize, break_ties=break_ties,
                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix, fix_validation=fix_validation)
 
     def load_xgb_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-6,
-                                  featname_suffix="", algo_suffix="", fix_validation=True):
+                                  featname_suffix="", algo_suffix="", fix_validation=False):
         return self._load_ensemble_feature(folder, "xgb" + algo_suffix, normalize=normalize, break_ties=break_ties,
                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix, fix_validation=fix_validation)
 
     def load_pyltr_ensemble_feature(self, folder, normalize=True, break_ties=False, break_ties_penalization=1e-6,
-                                    featname_suffix="", algo_suffix="", fix_validation=True):
+                                    featname_suffix="", algo_suffix="", fix_validation=False):
         return self._load_ensemble_feature(folder, "pyltr" + algo_suffix, normalize=normalize, break_ties=break_ties,
                break_ties_penalization=break_ties_penalization, featname_suffix=featname_suffix, fix_validation=fix_validation)
 
