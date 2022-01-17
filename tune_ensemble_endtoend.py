@@ -175,10 +175,10 @@ if __name__ == "__main__":
         user_mappers = featgen.get_user_mappers()
         item_mappers = featgen.get_item_mappers()
 
-        if len(basic_dfs) <= 0:
+        break_ties_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
+        ratings_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
 
-            break_ties_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
-            ratings_folder = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
+        if len(basic_dfs) <= 0:
 
             all_predictions = []
 
