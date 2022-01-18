@@ -34,12 +34,14 @@ EXPERIMENTAL_CONFIG['n_folds'] = 0
 
 def compute_permutation_importance(_params, _ratings, _validation, cv_folds=5, random_state=42):
 
+    print("Computing permutation importance")
+
     if "n_estimators" not in _params.keys():
         _params["n_estimators"] = 1500
     _params["metric"] = None
     # _params["n_jobs"] = 4
     model = lgbm.LGBMRanker(**_params)
-    _ratings = _ratings.sort_values(by=['user'])
+    _ratings = _ratings.sort_values(by=['user', 'item'])
 
     validation_df = pd.DataFrame({'user': _ratings.user.copy(), 'item': _ratings.item.copy()})
     validation_true = pd.DataFrame({'user': _validation.row, 'item': _validation.col, 'relevance': 1})
@@ -66,8 +68,8 @@ def compute_permutation_importance(_params, _ratings, _validation, cv_folds=5, r
         test_groups = counts[np.argsort(users)]
 
         train_df = _ratings.drop(['user', 'item'], axis=1)
-        train_pred_df = train_validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
-        val_pred_df = validation_df.sort_values(by=['user']).drop(['user', 'item'], axis=1)
+        train_pred_df = train_validation_df.sort_values(by=['user', 'item']).drop(['user', 'item'], axis=1)
+        val_pred_df = validation_df.sort_values(by=['user', 'item']).drop(['user', 'item'], axis=1)
         model.fit(
             train_df.iloc[train_index], train_pred_df.iloc[train_index], group=train_groups,
             eval_set=[(train_df.iloc[test_index], val_pred_df.iloc[test_index])],
@@ -75,22 +77,26 @@ def compute_permutation_importance(_params, _ratings, _validation, cv_folds=5, r
             callbacks=[lgbm.early_stopping(10, verbose=False), lgbm.log_evaluation(0)]
         )
 
+        test_users = _ratings.iloc[test_index].user
+        test_items = _ratings.iloc[test_index].item
+
         def score_func(X, y):
-            _valid = sps.csr_matrix((y.relevance, (y.user, y.item)), shape=_validation.shape)
             predictions = model.predict(X, raw_score=True) + 1e-10
-            predictions_matrix = sps.csr_matrix((predictions, (X.user.values, X.item.values)), shape=_valid.shape)
-            user_ndcg, n_evals = evaluate(predictions_matrix, _valid, cutoff=10)
+            predictions_matrix = sps.csr_matrix((predictions, (test_users, test_items)), shape=y.shape)
+            user_ndcg, n_evals = evaluate(predictions_matrix, y, cutoff=10)
             return np.sum(user_ndcg) / n_evals
 
+        weights = np.zeros(_validation.shape[0])
         eli5_dataset_x = train_df.iloc[test_index]
-        eli5_dataset_y = validation_df.sort_values(by=['user']).iloc[test_index]
-        base_score, score_decreases = get_score_importances(score_func, eli5_dataset_x.to_numpy(), eli5_dataset_y.to_numpy(), n_iter=5)
+        weights[np.unique(test_users)] = 1.
+        eli5_dataset_y = sps.diags(weights, dtype=np.float32).dot(_validation)
+        base_score, score_decreases = get_score_importances(score_func, eli5_dataset_x.to_numpy(), eli5_dataset_y, n_iter=5)
 
         fi = np.mean(score_decreases, axis=0)
         for c_idx, column in enumerate(eli5_dataset_x.columns):
             feature_importances[fold][column] = fi[c_idx]
 
-        print("Permutation importance: CV Fold {} completed".format(fold))
+        print("Permutation importance: CV Fold {} completed ({})".format(fold, base_score))
 
     return feature_importances
 
@@ -231,7 +237,7 @@ if __name__ == "__main__":
 
         if load_dataframe:
             for filename in sorted(glob.glob(df_filename + "*.parquet.gzip")):
-                basic_dfs.append(pd.read_parquet(filename))
+                basic_dfs.append(pd.read_parquet(filename).sort_values(by=['user', 'item']))
 
         featgen = FeatureGenerator(exam_folder)
 
@@ -314,7 +320,9 @@ if __name__ == "__main__":
                                                         on=["user", "item"], how="left", sort=True)
 
             for j in range(len(basic_dfs)):
-                basic_dfs[j].to_parquet(df_filename + "-{}.parquet.gzip".format(j), compression="gzip")
+                current_filename = df_filename + "-{}.parquet.gzip".format(j)
+                basic_dfs[j].to_parquet(current_filename, compression="gzip")
+                basic_dfs[j] = pd.read_parquet(current_filename).sort_values(by=['user', 'item'])
 
         print("Final dataframe shape:", basic_dfs[-2].shape)
         fillers = None
@@ -334,6 +342,16 @@ if __name__ == "__main__":
                 for f in feature_importances.keys():
                     for c in feature_importances[f].keys():
                         print(c, f, feature_importances[f][c], file=file, sep=",")
+            fidf = pd.read_csv("fi-{}.txt".format(exam_folder), header=None, names=["feature", "fold", "increment"])
+            gdf = fidf.groupby("feature").mean()
+            gdf.sort_values(by=["increment"], inplace=True)
+            mask = gdf.increment.values < -0.00001
+            to_remove = gdf.index.values[mask].tolist()
+            print("Found {} non-relevant features that are being removed".format(len(to_remove)))
+            for j in range(len(basic_dfs)):
+                basic_dfs[j].drop(to_remove, axis=1, inplace=True)
+            er, er_test, result = optimizer.train_cv_best_params(urms[-2], basic_dfs[-2], validations[-1], filler=None, test_df=basic_dfs[-1])
+            print("FINAL ENSEMBLE AFTER FI {}: {:.8f}".format(exam_folder, result))
 
         filler = read_ratings(break_ties_folder + "valid_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
         er = break_ties_with_filler(er, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-6)
