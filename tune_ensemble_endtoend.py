@@ -257,7 +257,7 @@ if __name__ == "__main__":
                 if exam_folder in folder:
                     print("Loading", folder)
                     all_predictions.append(featgen.load_algorithms_predictions(folder, only_best_baselines=False, normalize=False))
-                    all_predictions.append(featgen.load_algorithms_predictions(folder, only_best_baselines=False, normalize=True))
+                    #all_predictions.append(featgen.load_algorithms_predictions(folder, only_best_baselines=False, normalize=True))
                     all_predictions.append(featgen.load_folder_features(folder, include_fold_features=False))
                     for normalize in [True, False]:
                         featgen.load_ratings_ensemble_feature(folder, normalize=normalize)
@@ -330,7 +330,7 @@ if __name__ == "__main__":
         #    read_ratings(break_ties_folder + "valid_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper),
         #    read_ratings(break_ties_folder + "test_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
         #]
-        optimizer = optimizer_class(urms, basic_dfs, validations, fillers=fillers, n_folds=n_folds, random_trials_perc=0.3)
+        optimizer = optimizer_class(urms, basic_dfs, validations, fillers=fillers, n_folds=n_folds, random_trials_perc=0.35)
         best_params = optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=None,
                                study_name_suffix="_endtoend_" + args.gbdt)
         er, er_test, result = optimizer.train_cv_best_params(urms[-2], basic_dfs[-2], validations[-1], filler=None, test_df=basic_dfs[-1])
@@ -343,10 +343,10 @@ if __name__ == "__main__":
                     for c in feature_importances[f].keys():
                         print(c, f, feature_importances[f][c], file=file, sep=",")
             fidf = pd.read_csv("fi-{}.txt".format(exam_folder), header=None, names=["feature", "fold", "increment"])
-            gdf = fidf.groupby("feature").mean()
-            gdf.sort_values(by=["increment"], inplace=True)
-            mask = gdf.increment.values < -0.00001
-            to_remove = gdf.index.values[mask].tolist()
+            gdf_mean = fidf.groupby("feature").mean()
+            gdf_max = fidf.groupby("feature").max()
+            to_remove = list(set(gdf_mean.index.values[gdf_mean.increment.values < 0.].tolist()).intersection(
+                set(gdf_max.index.values[gdf_max.increment.values <= 1e-8].tolist())))
             print("Found {} non-relevant features that are being removed".format(len(to_remove)))
             for j in range(len(basic_dfs)):
                 basic_dfs[j].drop(to_remove, axis=1, inplace=True)
@@ -354,10 +354,10 @@ if __name__ == "__main__":
             print("FINAL ENSEMBLE AFTER FI {}: {:.8f}".format(exam_folder, result))
 
         filler = read_ratings(break_ties_folder + "valid_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
-        er = break_ties_with_filler(er, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-6)
+        er = break_ties_with_filler(er, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-8)
 
         filler = read_ratings(break_ties_folder + "test_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
-        er_test = break_ties_with_filler(er_test, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-6)
+        er_test = break_ties_with_filler(er_test, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-8)
 
         output_scores(ratings_folder + "valid_scores_{}.tsv".format(args.gbdt), er, user_mappers[-2], item_mappers[-2], compress=False)
         output_scores(ratings_folder + "test_scores_{}.tsv".format(args.gbdt), er_test, user_mappers[-1], item_mappers[-1], compress=False)
