@@ -19,6 +19,7 @@ from utils import remove_seen, row_minmax_scaling, evaluate
 class LightGBMOptimizer(Optimizer):
 
     NAME = "lgbm"
+    split_seed = 687
 
     def evaluate(self, predictions_matrix, val, cutoff=10):
         return evaluate(predictions_matrix, val, cutoff=cutoff)
@@ -105,8 +106,8 @@ class LightGBMOptimizer(Optimizer):
         params = {
             "boosting_type": boosting_type,
             "learning_rate": trial.suggest_float("learning_rate", 1e-2, 0.4, log=True),
-            "max_depth": trial.suggest_int("max_depth", 3, 31),
-            "num_leaves": trial.suggest_int("num_leaves", 7, 400),
+            "max_depth": trial.suggest_int("max_depth", 3, 47),
+            "num_leaves": trial.suggest_int("num_leaves", 7, 2047),
             "subsample_for_bin": trial.suggest_int("subsample_for_bin", 1000, 1000000),
             "objective": trial.suggest_categorical("objective", ["lambdarank", "rank_xendcg"]),
             "min_split_gain": trial.suggest_float("min_split_gain", 1e-8, 1e-2, log=True),
@@ -114,8 +115,8 @@ class LightGBMOptimizer(Optimizer):
             "min_child_samples": trial.suggest_int("min_child_samples", 8, 100),
             "random_state": trial.suggest_categorical("random_state", [1]),
             "colsample_bytree": trial.suggest_float("colsample_bytree", 1e-2, 1., log=True),
-            "reg_alpha": trial.suggest_float("reg_alpha", 1e-7, 0.1, log=True),
-            "reg_lambda": trial.suggest_float("reg_lambda", 1e-7, 0.1, log=True),
+            "reg_alpha": trial.suggest_float("reg_alpha", 1e-7, 0.01, log=True),
+            "reg_lambda": trial.suggest_float("reg_lambda", 1e-7, 0.01, log=True),
         }
 
         if boosting_type != "goss":
@@ -126,7 +127,7 @@ class LightGBMOptimizer(Optimizer):
                 params["subsample"] = 1.
 
         if boosting_type == "dart":
-            params["n_estimators"] = trial.suggest_int("n_estimators", 50, 700, log=True)
+            params["n_estimators"] = trial.suggest_int("n_estimators", 400, 1200, log=True)
             params["drop_rate"] = trial.suggest_float("drop_rate", 1e-2, 0.5, log=True)
             params["skip_drop"] = trial.suggest_float("skip_drop", 0.2, 0.8)
             params["max_drop"] = trial.suggest_int("max_drop", 5, 100, log=True)

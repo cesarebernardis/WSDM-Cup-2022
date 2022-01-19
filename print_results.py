@@ -68,18 +68,21 @@ if __name__ == "__main__":
                         continue
 
                 for recname in ["ratings", "xgb", "lgbm"]:
-                    output_folder_path = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \
-                        "{}-ensemble-prediction-{}-valid.tsv.gz".format(recname, exam_folder)
-                    try:
-                        r = read_ratings(output_folder_path, exam_user_mappers[exam_folder], exam_item_mappers[exam_folder])
-                        user_ndcg, n_evals = evaluate(r, exam_valids[exam_folder], cutoff=10)
-                        result = sum(user_ndcg) / n_evals
-                        with open(results_filename, "a") as file:
-                            output = ",".join([folder, exam_folder, recname + "-ensemble", "{:.10f}".format(result)])
-                            print(output, file=file)
-                    except Exception as e:
-                        print(e)
-                        continue
+                    for suffix in ["", "-small"]:
+                        for norm in ["", "-nonorm", "-both"]:
+                            fullname = "{}{}{}".format(recname, suffix, norm)
+                            output_folder_path = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \
+                                "{}-ensemble-prediction-{}-valid.tsv.gz".format(fullname, exam_folder)
+                            try:
+                                r = read_ratings(output_folder_path, exam_user_mappers[exam_folder], exam_item_mappers[exam_folder])
+                                user_ndcg, n_evals = evaluate(r, exam_valids[exam_folder], cutoff=10)
+                                result = sum(user_ndcg) / n_evals
+                                with open(results_filename, "a") as file:
+                                    output = ",".join([folder, exam_folder, fullname + "-ensemble", "{:.10f}".format(result)])
+                                    print(output, file=file)
+                            except Exception as e:
+                                print(e)
+                                continue
 
         df = pd.read_csv(results_filename, sep=",") \
                .drop_duplicates(["folder", "exam-folder", "recommender"], keep="last", ignore_index=True)

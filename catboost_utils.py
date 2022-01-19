@@ -18,6 +18,7 @@ from utils import remove_seen, row_minmax_scaling, evaluate
 class CatboostOptimizer(Optimizer):
 
     NAME = "catboost"
+    split_seed = 7687
 
     def train_cv(self, _params, _urm, _ratings, _validation, test_df=None, filler=None):
 

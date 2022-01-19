@@ -752,12 +752,15 @@ class Optimizer:
 
     VAL_WEIGHT = 2.
     NAME = "Generic"
+    split_seed = 142
 
-    def __init__(self, urms, ratings, validations, fillers=None, n_folds=5, random_trials_perc=0.25):
+    def __init__(self, urms, ratings, validations, fillers=None, n_folds=5, random_trials_perc=0.25, split_seed=None):
         self.urms = urms
         self.ratings = ratings
         self.validations = validations
         self.n_folds = n_folds
+        if split_seed is not None:
+            self.split_seed = split_seed
         if fillers is None:
             self.fillers = [None for _ in range(len(validations))]
         else:

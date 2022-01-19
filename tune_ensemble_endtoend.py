@@ -193,8 +193,6 @@ if __name__ == "__main__":
                         help='Number of trials for hyperparameter optimization')
     parser.add_argument('--nfolds', '-cv', metavar='FOLDS', type=int, nargs='?', default=5,
                         help='Number of CV folds for hyperparameter optimization')
-    parser.add_argument('--include-subs', '-i', nargs='?', dest="include_subs", default=False, const=True,
-                        help='Whether to include good submissions in the ensemble')
     parser.add_argument('--force-hpo', '-f', nargs='?', dest="force_hpo", default=False, const=True,
                         help='Whether to run a new hyperparameter optimization discarding previous ones')
     parser.add_argument('--no-sub', '-ns', nargs='?', dest="no_sub", default=False, const=True,
@@ -257,7 +255,6 @@ if __name__ == "__main__":
                 if exam_folder in folder:
                     print("Loading", folder)
                     all_predictions.append(featgen.load_algorithms_predictions(folder, only_best_baselines=False, normalize=False))
-                    #all_predictions.append(featgen.load_algorithms_predictions(folder, only_best_baselines=False, normalize=True))
                     all_predictions.append(featgen.load_folder_features(folder, include_fold_features=False))
                     for normalize in [True, False]:
                         featgen.load_ratings_ensemble_feature(folder, normalize=normalize)
@@ -309,16 +306,6 @@ if __name__ == "__main__":
                 basic_dfs[j] = basic_dfs[j].merge(item_factors[j], on=["item"], how="left", sort=False)
                 basic_dfs[j] = basic_dfs[j].merge(user_factors[j], on=["user"], how="left", sort=True)
 
-            if args.include_subs:
-                for sub in range(18, 25):
-                    submission_name = "submission-{}".format(sub)
-                    filename = "submission" + os.sep + "{}.zip".format(submission_name)
-                    v, t = load_submission(filename, exam_folder, exam_user_mapper, exam_item_mapper)
-                    basic_dfs[-2] = basic_dfs[-2].merge(pd.DataFrame({'user': v.row, 'item': v.col, submission_name: v.data}),
-                                                        on=["user", "item"], how="left", sort=True)
-                    basic_dfs[-1] = basic_dfs[-1].merge(pd.DataFrame({'user': t.row, 'item': t.col, submission_name: t.data}),
-                                                        on=["user", "item"], how="left", sort=True)
-
             for j in range(len(basic_dfs)):
                 current_filename = df_filename + "-{}.parquet.gzip".format(j)
                 basic_dfs[j].to_parquet(current_filename, compression="gzip")
@@ -326,15 +313,9 @@ if __name__ == "__main__":
 
         print("Final dataframe shape:", basic_dfs[-2].shape)
         fillers = None
-        #[
-        #    read_ratings(break_ties_folder + "valid_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper),
-        #    read_ratings(break_ties_folder + "test_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
-        #]
         optimizer = optimizer_class(urms, basic_dfs, validations, fillers=fillers, n_folds=n_folds, random_trials_perc=0.35)
         best_params = optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=None,
                                study_name_suffix="_endtoend_" + args.gbdt)
-        er, er_test, result = optimizer.train_cv_best_params(urms[-2], basic_dfs[-2], validations[-1], filler=None, test_df=basic_dfs[-1])
-        print("FINAL ENSEMBLE {}: {:.8f}".format(exam_folder, result))
 
         if args.fi:
             feature_importances = compute_permutation_importance(best_params, basic_dfs[-2], validations[-1])
@@ -350,8 +331,9 @@ if __name__ == "__main__":
             print("Found {} non-relevant features that are being removed".format(len(to_remove)))
             for j in range(len(basic_dfs)):
                 basic_dfs[j].drop(to_remove, axis=1, inplace=True)
-            er, er_test, result = optimizer.train_cv_best_params(urms[-2], basic_dfs[-2], validations[-1], filler=None, test_df=basic_dfs[-1])
-            print("FINAL ENSEMBLE AFTER FI {}: {:.8f}".format(exam_folder, result))
+
+        er, er_test, result = optimizer.train_cv(best_params, urms[-2], basic_dfs[-2], validations[-1], filler=None, test_df=basic_dfs[-1])
+        print("FINAL ENSEMBLE {}: {:.8f}".format(exam_folder, result))
 
         filler = read_ratings(break_ties_folder + "valid_scores_ratings.tsv.gz".format(exam_folder), exam_user_mapper, exam_item_mapper)
         er = break_ties_with_filler(er, row_minmax_scaling(filler), use_filler_ratings=True, penalization=1e-8)
