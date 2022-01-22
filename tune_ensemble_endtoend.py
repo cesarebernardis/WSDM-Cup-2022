@@ -313,9 +313,31 @@ if __name__ == "__main__":
 
         print("Final dataframe shape:", basic_dfs[-2].shape)
         fillers = None
-        optimizer = optimizer_class(urms, basic_dfs, validations, fillers=fillers, n_folds=n_folds, random_trials_perc=0.35)
-        best_params = optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=None,
-                               study_name_suffix="_endtoend_" + args.gbdt)
+        if exam_folder == "t1":
+            split_seed = 4173
+            best_params = {'boosting_type': 'dart', 'learning_rate': 0.044172271200332486, 'max_depth': 30,
+                           'num_leaves': 901, 'subsample_for_bin': 406492, 'objective': 'lambdarank',
+                           'min_split_gain': 5.088723476859207e-06, 'min_child_weight': 0.0006629399184710278,
+                           'min_child_samples': 95, 'random_state': 1, 'colsample_bytree': 0.7894292874700082,
+                           'reg_alpha': 0.00031790459274172006, 'reg_lambda': 1.1527419326896665e-07,
+                           'subsample_freq': 1, 'subsample': 0.3919530288143605, 'n_estimators': 980,
+                           'drop_rate': 0.08096219160771956, 'skip_drop': 0.4187495251058306, 'max_drop': 5}
+        elif exam_folder == "t2":
+            split_seed = 64399
+            best_params = {'boosting_type': 'dart', 'learning_rate': 0.0120672937035972, 'max_depth': 5,
+                           'num_leaves': 1478, 'subsample_for_bin': 426183, 'objective': 'rank_xendcg',
+                           'min_split_gain': 3.4826260474863814e-05, 'min_child_weight': 0.00048010481844226727,
+                           'min_child_samples': 20, 'random_state': 1, 'colsample_bytree': 0.4849343279440306,
+                           'reg_alpha': 5.587023976348108e-06, 'reg_lambda': 0.0012697073357504733, 'subsample_freq': 2,
+                           'subsample': 0.8913144157010818, 'n_estimators': 874, 'drop_rate': 0.02666184387323576,
+                           'skip_drop': 0.6952141811110062, 'max_drop': 42}
+
+        optimizer = optimizer_class(urms, basic_dfs, validations, fillers=fillers, n_folds=n_folds,
+                                    random_trials_perc=0.35, split_seed=split_seed)
+
+        if force_hpo:
+            best_params = optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=None,
+                                   study_name_suffix="_endtoend_" + args.gbdt)
 
         if args.fi:
             feature_importances = compute_permutation_importance(best_params, basic_dfs[-2], validations[-1])

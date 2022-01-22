@@ -1,3 +1,5 @@
+# WARNING! NEVER TESTED!!
+
 import os
 from functools import partial
 
@@ -172,7 +174,7 @@ def __predict(dataloader: DataLoader, model: LTRModel) -> np.ndarray:
     return np.concatenate(scores)
 
 
-def predict(dataset: LibSVMDataset, model: LTRModel, batch_size=64: int) -> np.ndarray:
+def predict(dataset: LibSVMDataset, model: LTRModel, batch_size: int) -> np.ndarray:
     """
     Ranks given datasets according to a given model
     :param datasets: dictionary of role -> dataset that will be ranked

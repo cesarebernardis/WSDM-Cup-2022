@@ -17,7 +17,7 @@ EXPERIMENTAL_CONFIG = {
     'splitter': LeaveKOut(k_value=2, with_validation=False, test_rating_threshold=3., allow_cold_users=True),
     'dataset_folder': "datasets" + os.sep,
     'datasets': [
-        't1-t2-iu', 't1', 't2', 't1-5core', 't2-5core',
+        't1-t2-iu', 't1', 't2',
         's1-t2-iu', 's1-t1-iu', 's2-t1-iu', 's2-t2-iu', 's3-t1-iu', 's3-t2-iu',
         's2-s3-t1-iu', 's2-s3-t2-iu', 's1-s3-t1-iu', 's1-s3-t2-iu', 's1-s2-t1-iu', 's1-s2-t2-iu',
         's1-t1-t2-iu', 's2-t1-t2-iu', 's3-t1-t2-iu',
