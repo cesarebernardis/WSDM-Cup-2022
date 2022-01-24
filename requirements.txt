@@ -10,7 +10,7 @@ tqdm
 scikit-optimize>=0.8
 optuna
 catboost
-lightgbm
+lightgbm>=3.3
 xgboost
 pyarrow
 lightfm

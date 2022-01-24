@@ -2,19 +2,39 @@
 
 ---
 
-This is the source code of the solution of the team PolimiRank for the WSDM Cup 2022.
-The solution consists in a three steps model applied on (almost) all the combinations of source and target datasets.
-1) Some among the most common recommendation algorithms are used to predict the scores for the required user-item couples on each dataset;
-2) The scores of each dataset are ensembled using a simple non-linear combination and a set of common Gradient Boosting Decision Trees models (LightGBM, XGBoost, CatBoost);
-3) All the scores and the ensembles of all the datasets are ensembled together to obtain the final prediction.
+This is the source code of the solution of the team **PolimiRank** for the **WSDM Cup 2022**.
+
+The solution consists in a multi-stage model applied on all the combinations of source and target markets.
+All the different combinations of the source markets are merged with one or both the target markets in order to obtain the different datasets used for cross-domain recommendation. 
+The items in common benefit from the interactions coming from all the markets included in the dataset, while the users are kept distinct from market to market.
+
+In the first stage of the model, some among the most common collaborative recommendation algorithms, including item-based, user-based, graph-based, matrix factorization and deep learning models, are used to predict the scores for the required user-item couples on each dataset.
+In the second stage, the scores for each dataset are separately ensembled using a simple non-linear combination, and a set of common Gradient Boosting Decision Trees models (LightGBM, XGBoost, CatBoost).
+In the third (and final) stage, all the scores of first and second stages of all the datasets are ensembled together to obtain a unique final prediction.
+In the last two stages, latent factors of users and items (obtained through an ALS model) and basic statistics about the datasets are included.
+
+The competition provides train, validation and test data.
+In the first stage, for the score prediction on validation all the recommenders are trained on train data for the specific target market, while for the prediction on test all the recommenders are trained on the union between train and validation data.
+In second and third stages, instead, models are trained for the learning to rank task directly on validation data of a specific target market (models for different target markets have been trained and optimized separately), using 5-fold cross validation to avoid overfitting.
+
 
 # Reproducibility
 
 ## Docker image
 
-If the Docker image of the framework is available, it already trains the models for the two target markets 
-using the same features and hyperparameters used for the top-scoring solution in the competition leaderboard,
-and outputs the predictions.
+If the Docker image trains the models for the two target markets using the same features and 
+hyperparameters used for the top-scoring solution in the competition leaderboard and outputs the predictions.
+The following commands run the image in a container and outputs the solution zip in the current folder:
+
+```console
+docker create -it --name wsdmcup cesarebernardis/wsdmcup-2022:latest
+docker start wsdmcup
+docker exec -it wsdmcup /bin/bash
+bash /train_and_submit.sh
+exit
+docker cp wsdmcup:/home/WSDMCup2022/submission/submission.zip ./
+docker stop wsdmcup
+```
 
 ## Running form scratch
 
