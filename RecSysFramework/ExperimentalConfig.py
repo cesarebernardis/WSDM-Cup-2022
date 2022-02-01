@@ -13,7 +13,7 @@ from RecSysFramework.Recommender.DeepLearning import MultVAE, RecVAE
 
 
 EXPERIMENTAL_CONFIG = {
-    'n_folds': 5,
+    'n_folds': 0,
     'splitter': LeaveKOut(k_value=2, with_validation=False, test_rating_threshold=3., allow_cold_users=True),
     'dataset_folder': "datasets" + os.sep,
     'datasets': [

@@ -163,7 +163,7 @@ if __name__ == "__main__":
 
                     exam_folder_path = EXPERIMENTAL_CONFIG['dataset_folder'] + exam_folder + os.sep
 
-                    for fold in range(EXPERIMENTAL_CONFIG['n_folds'])[:0]:
+                    for fold in range(EXPERIMENTAL_CONFIG['n_folds']):
 
                         validation_folder = exam_folder + "-" + str(fold)
                         #recfile = output_folder_path + os.sep + validation_folder + "_valid_scores.tsv.gz"
@@ -187,7 +187,7 @@ if __name__ == "__main__":
                                        user_mapper=user_mapper, item_mapper=item_mapper,
                                        is_test=False, exam_folder=exam_folder)
 
-                    if any(not os.path.isfile(output_folder_path + os.sep + "{}_valid_scores_{}.tsv.gz".format(exam_folder, f))
+                    if EXPERIMENTAL_CONFIG['n_folds'] > 0 and any(not os.path.isfile(output_folder_path + os.sep + "{}_valid_scores_{}.tsv.gz".format(exam_folder, f))
                            for f in range(EXPERIMENTAL_CONFIG['n_folds'])):
                         exam_urm_valid_neg = [
                             stretch_urm(load_compressed_csr_matrix(exam_folder_path + "urm_valid_neg_{}.npz".format(f)),
