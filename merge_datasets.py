@@ -7,6 +7,14 @@ import scipy.sparse as sps
 from RecSysFramework.ExperimentalConfig import EXPERIMENTAL_CONFIG
 
 
+def gzip_file(filename):
+    f_in = open(filename)
+    f_out = gzip.open(filename + '.gz', 'wb')
+    f_out.writelines(f_in)
+    f_out.close()
+    f_in.close()
+
+
 if __name__ == "__main__":
 
     source_markets = [
@@ -35,7 +43,13 @@ if __name__ == "__main__":
 
                 for folder in datasets_to_merge:
                     basepath = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep
-                    dfs.append(pd.read_csv(basepath + data, sep="\t", index_col=False, header=header, names=colnames))
+                    filename = basepath + data
+                    if not os.path.isfile(filename):
+                        if os.path.isfile(filename[:-3]):
+                            gzip_file(filename[:-3])
+                        else:
+                            raise Exception("File {} is missing!".format(filename[:-3]))
+                    dfs.append(pd.read_csv(filename, sep="\t", index_col=False, header=header, names=colnames))
 
                 df = pd.concat(dfs)
                 del dfs

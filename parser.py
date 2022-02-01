@@ -291,5 +291,5 @@ def read_parse_save(folder, threshold=0., binarize=False, force_user_merge=False
 if __name__ == "__main__":
     for subdir in os.listdir("datasets"):
         dir = "datasets" + os.sep + subdir
-        if os.path.isdir(dir) and ("t1" in dir or "t2" in dir):
+        if os.path.isdir(dir) and ("t1" in dir or "t2" in dir) and "t1t2" not in dir:
             read_parse_save(dir)
