@@ -8,11 +8,8 @@ from RecSysFramework.ExperimentalConfig import EXPERIMENTAL_CONFIG
 
 
 def gzip_file(filename):
-    f_in = open(filename)
-    f_out = gzip.open(filename + '.gz', 'wb')
-    f_out.writelines(f_in)
-    f_out.close()
-    f_in.close()
+    with open(filename, 'rb') as f_in, gzip.open(filename + '.gz', 'wb') as f_out:
+        f_out.writelines(f_in)
 
 
 if __name__ == "__main__":
