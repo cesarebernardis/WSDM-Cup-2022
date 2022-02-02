@@ -85,39 +85,46 @@ if __name__ == "__main__":
 
             if exam_folder in folder:
 
-                print("Loading", folder)
-                ratings = featgen.load_folder_features(folder)
+                for normalization in ["", "-nonorm", "-both"]:
 
-                predictions = featgen.load_algorithms_predictions(folder)
-                for j in range(len(predictions)):
-                    ratings[j] = ratings[j].merge(predictions[j], on=["user" ,"item"], how="left", sort=True)
+                    ratings = featgen.load_folder_features(folder)
 
-                useless_cols = get_useless_columns(ratings[-2])
-                for i in range(len(ratings)):
-                    remove_useless_features(ratings[i], columns_to_remove=useless_cols, inplace=True)
+                    if normalization in ["", "-both"]:
+                        predictions = featgen.load_algorithms_predictions(folder, normalize=True)
+                        for j in range(len(predictions)):
+                            ratings[j] = ratings[j].merge(predictions[j], on=["user" ,"item"], how="left", sort=True)
 
-                user_factors, item_factors = featgen.load_user_factors(folder, num_factors=12, normalize=True)
-                for j in range(len(user_factors)):
-                    ratings[j] = ratings[j].merge(item_factors[j], on=["item"], how="left", sort=False)
-                    ratings[j] = ratings[j].merge(user_factors[j], on=["user"], how="left", sort=True)
+                    if normalization in ["-nonorm", "-both"]:
+                        predictions = featgen.load_algorithms_predictions(folder, normalize=False)
+                        for j in range(len(predictions)):
+                            ratings[j] = ratings[j].merge(predictions[j], on=["user" ,"item"], how="left", sort=True)
 
-                optimizer = optimizer_class(urms, ratings, validations, n_folds=n_folds)
-                optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=folder, study_name_suffix="-f")
+                    useless_cols = get_useless_columns(ratings[-2])
+                    for i in range(len(ratings)):
+                        remove_useless_features(ratings[i], columns_to_remove=useless_cols, inplace=True)
 
-                results_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \
-                                   "{}-ensemble-prediction-{}".format(optimizer.NAME, exam_folder)
+                    user_factors, item_factors = featgen.load_user_factors(folder, num_factors=12, normalize=True)
+                    for j in range(len(user_factors)):
+                        ratings[j] = ratings[j].merge(item_factors[j], on=["item"], how="left", sort=False)
+                        ratings[j] = ratings[j].merge(user_factors[j], on=["user"], how="left", sort=True)
 
-                er, er_test, result = optimizer.train_cv_best_params(urms[-2], ratings[-2], validations[-1], test_df=ratings[-1])
-                output_scores(results_filename + "-valid.tsv.gz", er.tocsr(), user_mappers[-2], item_mappers[-2], compress=True)
-                output_scores(results_filename + "-test.tsv.gz", er_test.tocsr(), user_mappers[-1], item_mappers[-1], compress=True)
-                print(exam_folder, folder, "Optimization finished:", result)
+                    optimizer = optimizer_class(urms, ratings, validations, n_folds=n_folds)
+                    optimizer.optimize_all(exam_folder, force=force_hpo, n_trials=n_trials, folder=folder, study_name_suffix="-f" + normalization)
 
-                for fold in range(EXPERIMENTAL_CONFIG['n_folds']):
-                    er, result = optimizer.train_cv_best_params(urms[fold], ratings[fold], validations[fold])
-                    output_scores(results_filename + "-f{}.tsv.gz".format(fold), er.tocsr(),
-                                  user_mappers[fold], item_mappers[fold], compress=True)
+                    results_filename = EXPERIMENTAL_CONFIG['dataset_folder'] + folder + os.sep + \
+                                       "{}{}-ensemble-prediction-{}".format(optimizer.NAME, normalization, exam_folder)
 
-                del optimizer
+                    er, er_test, result = optimizer.train_cv_best_params(urms[-2], ratings[-2], validations[-1], test_df=ratings[-1])
+                    output_scores(results_filename + "-valid.tsv.gz", er.tocsr(), user_mappers[-2], item_mappers[-2], compress=True)
+                    output_scores(results_filename + "-test.tsv.gz", er_test.tocsr(), user_mappers[-1], item_mappers[-1], compress=True)
+                    print(exam_folder, folder, "Optimization finished:", result)
+
+                    for fold in range(EXPERIMENTAL_CONFIG['n_folds']):
+                        er, result = optimizer.train_cv_best_params(urms[fold], ratings[fold], validations[fold])
+                        output_scores(results_filename + "-f{}.tsv.gz".format(fold), er.tocsr(),
+                                      user_mappers[fold], item_mappers[fold], compress=True)
+
+                    del optimizer
 
         del validations
         del user_mappers
