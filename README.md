@@ -2,14 +2,14 @@
 
 ---
 
-This is the source code of the solution of the team **PolimiRank** for the **WSDM Cup 2022**.
+This is the source code of the solution of the team **PolimiRank** for the **WSDM Cup 2022** on cross-domain recommendation. The team ranked 4th in the final leaderboard.
 
 The solution consists in a multi-stage model applied on all the combinations of source and target markets.
 All the different combinations of the source markets are merged with one or both the target markets in order to obtain the different datasets used for cross-domain recommendation. 
 The items in common benefit from the interactions coming from all the markets included in the dataset, while the users are kept distinct from market to market.
 
 In the first stage of the model, some among the most common collaborative recommendation algorithms, including item-based, user-based, graph-based, matrix factorization and deep learning models, are used to predict the scores for the required user-item couples on each dataset.
-In the second stage, the scores for each dataset are separately ensembled using a simple non-linear combination, and a set of common Gradient Boosting Decision Trees models (LightGBM, XGBoost, CatBoost).
+In the second stage, the scores for each dataset are separately ensembled using a simple non-linear combination, and a set of common Gradient Boosting Decision Trees models ([LightGBM](https://lightgbm.readthedocs.io/en/latest/), [XGBoost](https://xgboost.readthedocs.io/en/stable/), [CatBoost](https://catboost.ai/en/docs/)).
 In the third (and final) stage, all the scores of first and second stages of all the datasets are ensembled together to obtain a unique final prediction.
 In the last two stages, latent factors of users and items (obtained through an ALS model) and basic statistics about the datasets are included.
 
@@ -38,8 +38,8 @@ docker stop wsdmcup
 
 ## Running form scratch
 
-This requires a few steps and quite a lot of time to re-run the hyperparameter optimization 
-of the recommendation algorithms and the ensemble models. 
+This task requires a few steps and quite a lot of time to re-run the hyperparameter optimization 
+of the recommendation algorithms and the ensemble models.
 
 First, we suggest creating the environment with all the dependencies that are required to run the experiments.
 
