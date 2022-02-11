@@ -2,10 +2,10 @@
 
 ---
 
-This is the source code of the solution of the team **PolimiRank** for the **WSDM Cup 2022** on cross-domain recommendation. The team ranked 4th in the final leaderboard.
+This is the source code of the solution of the team **PolimiRank** for the **WSDM Cup 2022** on cross-market recommendation. The team ranked 4th in the final leaderboard.
 
 The solution consists in a multi-stage model applied on all the combinations of source and target markets.
-All the different combinations of the source markets are merged with one or both the target markets in order to obtain the different datasets used for cross-domain recommendation. 
+All the different combinations of the source markets are merged with one or both the target markets in order to obtain the different datasets used for cross-market recommendation. 
 The items in common benefit from the interactions coming from all the markets included in the dataset, while the users are kept distinct from market to market.
 
 In the first stage of the model, some among the most common collaborative recommendation algorithms, including item-based, user-based, graph-based, matrix factorization and deep learning models, are used to predict the scores for the required user-item couples on each dataset.
