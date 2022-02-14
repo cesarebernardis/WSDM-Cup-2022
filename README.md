@@ -76,7 +76,7 @@ python create_baselines.py
 
 Additionally, we provide the best hyperparameters found for the competition at [this link](https://drive.google.com/drive/folders/1SpUYlrvjtjnXSUQF1-AQivzMwBdybb_P?usp=sharing): download the files in the 'dataset' folder of the repository and simply extract the content.
 
-Due to time and resource constraints, it was not possible to test the expected number of configurations for all the datasets.
+Due to time and resource constraints, it was not possible to test the expected number of hyperparameter configurations for all the datasets.
 Therefore, we suggest to lower the number of trials to a small number (e.g., 1) for all the optimizations (-t parameter for the tune_ensemble_firstlevel.py script and parameter "n_random_starts" at line 148 of the create_baselines.py script).
 Otherwise the code will try to complete the optimizations running the missing trials.
 
