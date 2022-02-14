@@ -78,6 +78,7 @@ Additionally, we provide the best hyperparameters found for the competition at [
 
 Due to time and resource constraints, it was not possible to test the expected number of configurations for all the datasets.
 Therefore, we suggest to lower the number of trials to a small number (e.g., 1) for all the optimizations (-t parameter for the tune_ensemble_firstlevel.py script and parameter "n_random_starts" at line 148 of the create_baselines.py script).
+Otherwise the code will try to complete the optimizations running the missing trials.
 
 
 ### First level ensemble hyperparameter tuning
