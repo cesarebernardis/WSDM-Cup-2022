@@ -7,7 +7,8 @@ conda create -y -n wsdmcup --file requirements.txt python=3.8 -c anaconda -c con
 
 source activate wsdmcup
 
-pip install -e RecSysFramework/Utils/similaripy
+#pip install -e RecSysFramework/Utils/similaripy
+pip install similaripy
 pip install -e RecSysFramework/Utils/pyltr
 pip install implicit==0.5.2
 pip install tensorflow-gpu==2.5
